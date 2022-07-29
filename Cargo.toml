@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 notify = "4.0.17"
+rand = "0.8.5"

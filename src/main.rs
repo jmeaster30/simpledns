@@ -1,14 +1,29 @@
 pub mod dns_protocol;
 
+use std::net::UdpSocket;
+use std::io::Error;
+
 use crate::dns_protocol::*;
 
-fn main() {
-  println!("Hello, world!");
-  let query = [
-    0x86, 0x2A, 0x01, 0x20, 0x00, 0x01, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x06, 0x67, 0x6F, 0x6F,
-    0x67, 0x6C, 0x65, 0x03, 0x63, 0x6F, 0x6D, 0x00,
-    0x00, 0x01, 0x00, 0x01
-  ];
-  println!("{:#?}", DnsPacket::from_bytes(&query));
+fn main() -> Result<(), Error> {
+  let qname = "google.com";
+  let qtype = DnsQueryType::A;
+
+  let server = ("8.8.8.8", 53);
+
+  let socket = UdpSocket::bind(("0.0.0.0", 43210))?;
+
+  let mut packet = DnsPacket::new();
+  packet.header.recurse_desired = true;
+  packet.add_question(DnsQuestion::new(qname.to_string(), qtype));
+  let packet_bytes = packet.to_bytes();
+
+  socket.send_to(&packet_bytes, server)?;
+
+  let mut res: [u8; 512] = [0; 512];
+  socket.recv_from(&mut res)?;
+
+  let response_packet = DnsPacket::from_bytes(&res);
+  println!("{:#?}", response_packet);
+  Ok(())
 }
