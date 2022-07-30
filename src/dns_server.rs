@@ -1,8 +1,9 @@
 extern crate rand;
 
-use std::io::Error;
+use std::io::{Error, ErrorKind};
 use std::net::UdpSocket;
 use std::collections::HashMap;
+use std::sync::mpsc::{Receiver, TryRecvError};
 
 use rand::seq::SliceRandom;
 
@@ -25,13 +26,35 @@ impl DnsServer {
     }
   }
 
-  pub fn run(&self) -> Result<(), Error> {
+  pub fn run(&mut self, update_receiver: Receiver<(Vec<String>, HashMap<String, DnsRecord>)>) -> Result<(), Error> {
     let socket = UdpSocket::bind(("0.0.0.0", self.listen_port))?;
+    socket.set_nonblocking(true)?;
+
+    let mut update_receiver_disconnected = false;
 
     loop {
+      if !update_receiver_disconnected {
+        match update_receiver.try_recv() {
+          Ok(message) => {
+            println!("message: {:#?}", message);
+            self.servers = message.0;
+            self.records = message.1;
+            println!("Servers: {:#?}", self.servers);
+          },
+          Err(TryRecvError::Empty) => {
+            // empty queue do nothing
+            //println!("empty file update queue")
+          },
+          Err(TryRecvError::Disconnected) => {
+            update_receiver_disconnected = true;
+            println!("WARNING!!!!! Update Receiver Has Disconnected (this may be okay but may be bad)");
+          }
+        }
+      }
       match self.handle_query(&socket) {
-        Ok(_) => {}
-        Err(e) => eprintln!("An error occurred: {}", e),
+        Ok(_) => {println!("Done with query :)")},
+        Err(e) if e.kind() == ErrorKind::WouldBlock => {},
+        Err(e) => println!("An error occurred: {}", e),
       }
     }
   }
@@ -39,7 +62,7 @@ impl DnsServer {
   fn handle_query(&self, socket: &UdpSocket) -> Result<(), Error> {
     let mut res: [u8; 512] = [0; 512];
     let (_, src) = socket.recv_from(&mut res)?;
-  
+    println!("done receive");
     let mut request = DnsPacket::from_bytes(&res)?;
   
     let mut packet = DnsPacket::new();
@@ -77,7 +100,7 @@ impl DnsServer {
           }
         }
         Err(error) => {
-          println!("{:#?}", error);
+          println!("AW CRAP :( {:#?}", error);
           packet.header.response_code = DnsResponseCode::SERVFAIL;
         }
       }
@@ -96,8 +119,10 @@ impl DnsServer {
       Some(x) => x.as_str(),
       None => "8.8.8.8"
     }, 53);
+    println!("here {}", server.0);
   
     let socket = UdpSocket::bind(("0.0.0.0", self.backup_port))?;
+    println!("okay here");
   
     let mut packet = DnsPacket::new();
     packet.header.recurse_desired = true;
@@ -107,9 +132,11 @@ impl DnsServer {
     print_hex_bytes(&packet_bytes);
   
     socket.send_to(&packet_bytes, server)?;
+    println!("send");
   
     let mut res: [u8; 512] = [0; 512];
     socket.recv_from(&mut res)?;
+    println!("get");
   
     DnsPacket::from_bytes(&res)
   }
