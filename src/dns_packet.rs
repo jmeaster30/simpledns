@@ -1,3 +1,4 @@
+use std::io::{Error, ErrorKind};
 use std::net::Ipv4Addr;
 
 #[derive(Clone, Debug)]
@@ -30,26 +31,26 @@ impl DnsPacket {
     self.header.answer_count += 1;
   }
 
-  pub fn to_bytes(&self) -> Vec<u8> {
+  pub fn to_bytes(&mut self) -> Vec<u8> {
     let mut result = Vec::new();
     result.append(&mut self.header.to_bytes());
-    for q in &self.question_section {
+    for q in &mut self.question_section {
       result.append(&mut q.to_bytes());
     }
-    for a in &self.answer_section {
+    for a in &mut self.answer_section {
       result.append(&mut a.to_bytes());
     }
-    for a in &self.authority_section {
+    for a in &mut self.authority_section {
       result.append(&mut a.to_bytes());
     }
-    for a in &self.additional_section {
+    for a in &mut self.additional_section {
       result.append(&mut a.to_bytes());
     }
     result
   }
 
-  pub fn from_bytes(buffer: &[u8]) -> DnsPacket {
-    let header = DnsHeader::from_bytes(&buffer[0..12]);
+  pub fn from_bytes(buffer: &[u8]) -> Result<DnsPacket, Error> {
+    let header = DnsHeader::from_bytes(&buffer[0..12])?;
     let mut packet = Self {
       header: header.clone(),
       question_section: Vec::new(),
@@ -61,11 +62,10 @@ impl DnsPacket {
     let mut buffer_index = 12;
     for _ in 0..header.question_count {
       let mut question = DnsQuestion::empty();
-      (question.name, buffer_index) = get_name_from_packet(buffer, buffer_index, 0);
-      question.query_type =
-        DnsQueryType::from_num(get_u16(&buffer[buffer_index..(buffer_index + 2)]));
+      (question.name, buffer_index) = get_name_from_packet(buffer, buffer_index, 0)?;
+      question.query_type = DnsQueryType::from_num(get_u16(buffer, buffer_index)?);
       buffer_index += 2;
-      question.class = get_u16(&buffer[buffer_index..(buffer_index + 2)]);
+      question.class = get_u16(buffer, buffer_index)?;
       buffer_index += 2;
 
       packet.question_section.push(question);
@@ -73,38 +73,37 @@ impl DnsPacket {
 
     for _ in 0..header.answer_count {
       let record;
-      (record, buffer_index) = parse_dns_record(buffer, buffer_index);
+      (record, buffer_index) = parse_dns_record(buffer, buffer_index)?;
       packet.answer_section.push(record);
     }
 
     for _ in 0..header.authority_count {
       let record;
-      (record, buffer_index) = parse_dns_record(buffer, buffer_index);
+      (record, buffer_index) = parse_dns_record(buffer, buffer_index)?;
       packet.authority_section.push(record);
     }
 
     for _ in 0..header.additional_count {
       let record;
-      (record, buffer_index) = parse_dns_record(buffer, buffer_index);
+      (record, buffer_index) = parse_dns_record(buffer, buffer_index)?;
       packet.additional_section.push(record);
     }
 
-    packet
+    Ok(packet)
   }
 }
 
-fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> (DnsRecord, usize) {
+fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> Result<(DnsRecord, usize), Error> {
   let mut index = buffer_index;
   let mut record_preamble = DnsRecordPreamble::new();
-  (record_preamble.domain, index) = get_name_from_packet(buffer, index, 0);
-  record_preamble.query_type =
-    DnsQueryType::from_num(get_u16(&buffer[index..(index + 2)]));
+  (record_preamble.domain, index) = get_name_from_packet(buffer, index, 0)?;
+  record_preamble.query_type = DnsQueryType::from_num(get_u16(buffer, index)?);
   index += 2;
-  record_preamble.class = get_u16(&buffer[index..(index + 2)]);
+  record_preamble.class = get_u16(buffer, index)?;
   index += 2;
-  record_preamble.ttl = get_u32(&buffer[index..(index + 4)]);
+  record_preamble.ttl = get_u32(buffer, index)?;
   index += 4;
-  record_preamble.len = get_u16(&buffer[index..(index + 2)]);
+  record_preamble.len = get_u16(buffer, index)?;
   index += 2;
 
   let data_len = record_preamble.len as usize;
@@ -113,7 +112,10 @@ fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> (DnsRecord, usize) {
     DnsQueryType::Unknown(_) => {
       let body = &buffer[index..(index + data_len)];
       index += data_len;
-      (DnsRecord::Unknown(DnsRecordUnknown::new(record_preamble, body.to_vec())), index)
+      Ok((
+        DnsRecord::Unknown(DnsRecordUnknown::new(record_preamble, body.to_vec())),
+        index,
+      ))
     }
     DnsQueryType::A => {
       let addr = Ipv4Addr::new(
@@ -123,24 +125,33 @@ fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> (DnsRecord, usize) {
         buffer[index + 3],
       );
       index += 4;
-      (DnsRecord::A(DnsRecordA::new(record_preamble, addr)), index)
+      Ok((DnsRecord::A(DnsRecordA::new(record_preamble, addr)), index))
     }
     DnsQueryType::NS => {
       let mut domain = String::new();
-      (domain, index) = get_name_from_packet(buffer, index, 0);
-      (DnsRecord::NS(DnsRecordNS::new(record_preamble, domain)), index)
+      (domain, index) = get_name_from_packet(buffer, index, 0)?;
+      Ok((
+        DnsRecord::NS(DnsRecordNS::new(record_preamble, domain)),
+        index,
+      ))
     }
     DnsQueryType::CNAME => {
       let mut domain = String::new();
-      (domain, index) = get_name_from_packet(buffer, index, 0);
-      (DnsRecord::CNAME(DnsRecordCNAME::new(record_preamble, domain)), index)
+      (domain, index) = get_name_from_packet(buffer, index, 0)?;
+      Ok((
+        DnsRecord::CNAME(DnsRecordCNAME::new(record_preamble, domain)),
+        index,
+      ))
     }
     DnsQueryType::MX => {
-      let priority = get_u16(&buffer[index..(index + 2)]);
+      let priority = get_u16(buffer, index)?;
       index += 2;
       let mut domain = String::new();
-      (domain, index) = get_name_from_packet(buffer, index, 0);
-      (DnsRecord::MX(DnsRecordMX::new(record_preamble, priority, domain)), index)
+      (domain, index) = get_name_from_packet(buffer, index, 0)?;
+      Ok((
+        DnsRecord::MX(DnsRecordMX::new(record_preamble, priority, domain)),
+        index,
+      ))
     }
     DnsQueryType::AAAA => {
       let addr = Ipv4Addr::new(
@@ -150,12 +161,15 @@ fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> (DnsRecord, usize) {
         buffer[index + 3],
       );
       index += 4;
-      (DnsRecord::AAAA(DnsRecordAAAA::new(record_preamble, addr)), index)
+      Ok((
+        DnsRecord::AAAA(DnsRecordAAAA::new(record_preamble, addr)),
+        index,
+      ))
     }
   }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum DnsOpCode {
   QUERY = 0,
   IQUERY = 1,
@@ -189,7 +203,7 @@ impl DnsOpCode {
   }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum DnsResponseCode {
   NOERROR = 0,
   FORMERR = 1,
@@ -308,23 +322,30 @@ impl DnsHeader {
     result
   }
 
-  pub fn from_bytes(bytes: &[u8]) -> Self {
-    Self {
-      id: get_u16(&bytes[0..=1]),
-      query_response: ((bytes[2] >> 7) & 1) != 0,
-      op_code: DnsOpCode::from_num((bytes[2] >> 3) & 15),
-      auth_answer: ((bytes[2] >> 2) & 1) != 0,
-      truncated_message: ((bytes[2] >> 1) & 1) != 0,
-      recurse_desired: (bytes[2] & 1) != 0,
-      recurse_available: ((bytes[3] >> 7) & 1) != 0,
-      checking_disabled: ((bytes[3] >> 6) & 1) != 0,
-      authed_data: ((bytes[3] >> 7) & 5) != 0,
-      z: ((bytes[3] >> 4) & 1) != 0,
-      response_code: DnsResponseCode::from_num(bytes[3] & 15),
-      question_count: get_u16(&bytes[4..=5]),
-      answer_count: get_u16(&bytes[6..=7]),
-      authority_count: get_u16(&bytes[8..=9]),
-      additional_count: get_u16(&bytes[10..=11]),
+  pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+    if bytes.len() == 12 {
+      Ok(Self {
+        id: get_u16(bytes, 0)?,
+        query_response: ((bytes[2] >> 7) & 1) != 0,
+        op_code: DnsOpCode::from_num((bytes[2] >> 3) & 15),
+        auth_answer: ((bytes[2] >> 2) & 1) != 0,
+        truncated_message: ((bytes[2] >> 1) & 1) != 0,
+        recurse_desired: (bytes[2] & 1) != 0,
+        recurse_available: ((bytes[3] >> 7) & 1) != 0,
+        checking_disabled: ((bytes[3] >> 6) & 1) != 0,
+        authed_data: ((bytes[3] >> 7) & 5) != 0,
+        z: ((bytes[3] >> 4) & 1) != 0,
+        response_code: DnsResponseCode::from_num(bytes[3] & 15),
+        question_count: get_u16(bytes, 4)?,
+        answer_count: get_u16(bytes, 6)?,
+        authority_count: get_u16(bytes, 8)?,
+        additional_count: get_u16(bytes, 10)?,
+      })
+    } else {
+      Err(Error::new(
+        ErrorKind::InvalidData,
+        "Not enough bytes for header",
+      ))
     }
   }
 }
@@ -375,19 +396,19 @@ pub enum DnsRecord {
 }
 
 impl DnsRecord {
-  pub fn to_bytes(&self) -> Vec<u8> {
+  pub fn to_bytes(&mut self) -> Vec<u8> {
     match self {
-      DnsRecord::Unknown(_) => todo!(),
-      DnsRecord::A(_) => todo!(),
-      DnsRecord::NS(_) => todo!(),
-      DnsRecord::CNAME(_) => todo!(),
-      DnsRecord::MX(_) => todo!(),
-      DnsRecord::AAAA(_) => todo!(),
+      DnsRecord::Unknown(x) => x.to_bytes(),
+      DnsRecord::A(x) => x.to_bytes(),
+      DnsRecord::NS(x) => x.to_bytes(),
+      DnsRecord::CNAME(x) => x.to_bytes(),
+      DnsRecord::MX(x) => x.to_bytes(),
+      DnsRecord::AAAA(x) => x.to_bytes(),
     }
   }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum DnsQueryType {
   Unknown(u16),
   A,
@@ -440,6 +461,18 @@ impl DnsRecordPreamble {
       len: 0,
     }
   }
+
+  pub fn to_bytes(&self) -> Vec<u8> {
+    let mut result = Vec::new();
+
+    result.append(&mut domain_name_to_bytes(self.domain.as_str()));
+    result.append(&mut u16_to_bytes(self.query_type.to_num()));
+    result.append(&mut u16_to_bytes(self.class));
+    result.append(&mut u32_to_bytes(self.ttl));
+    result.append(&mut u16_to_bytes(self.len));
+
+    result
+  }
 }
 
 #[derive(Clone, Debug)]
@@ -451,6 +484,15 @@ pub struct DnsRecordUnknown {
 impl DnsRecordUnknown {
   pub fn new(preamble: DnsRecordPreamble, body: Vec<u8>) -> Self {
     Self { preamble, body }
+  }
+
+  pub fn to_bytes(&mut self) -> Vec<u8> {
+    let mut result = Vec::new();
+
+    result.append(&mut self.preamble.to_bytes());
+    result.append(&mut self.body);
+
+    result
   }
 }
 
@@ -464,6 +506,18 @@ impl DnsRecordA {
   pub fn new(preamble: DnsRecordPreamble, ip: Ipv4Addr) -> Self {
     Self { preamble, ip }
   }
+
+  pub fn to_bytes(&mut self) -> Vec<u8> {
+    let mut result = Vec::new();
+
+    result.append(&mut self.preamble.to_bytes());
+    result.push(self.ip.octets()[0]);
+    result.push(self.ip.octets()[1]);
+    result.push(self.ip.octets()[2]);
+    result.push(self.ip.octets()[3]);
+
+    result
+  }
 }
 
 #[derive(Clone, Debug)]
@@ -476,6 +530,15 @@ impl DnsRecordNS {
   pub fn new(preamble: DnsRecordPreamble, host: String) -> Self {
     Self { preamble, host }
   }
+
+  pub fn to_bytes(&mut self) -> Vec<u8> {
+    let mut result = Vec::new();
+
+    result.append(&mut self.preamble.to_bytes());
+    result.append(&mut domain_name_to_bytes(self.host.as_str()));
+
+    result
+  }
 }
 
 #[derive(Clone, Debug)]
@@ -487,6 +550,15 @@ pub struct DnsRecordCNAME {
 impl DnsRecordCNAME {
   pub fn new(preamble: DnsRecordPreamble, host: String) -> Self {
     Self { preamble, host }
+  }
+
+  pub fn to_bytes(&mut self) -> Vec<u8> {
+    let mut result = Vec::new();
+
+    result.append(&mut self.preamble.to_bytes());
+    result.append(&mut domain_name_to_bytes(self.host.as_str()));
+
+    result
   }
 }
 
@@ -505,6 +577,16 @@ impl DnsRecordMX {
       host,
     }
   }
+
+  pub fn to_bytes(&mut self) -> Vec<u8> {
+    let mut result = Vec::new();
+
+    result.append(&mut self.preamble.to_bytes());
+    result.append(&mut u16_to_bytes(self.priority));
+    result.append(&mut domain_name_to_bytes(self.host.as_str()));
+
+    result
+  }
 }
 
 #[derive(Clone, Debug)]
@@ -516,6 +598,18 @@ pub struct DnsRecordAAAA {
 impl DnsRecordAAAA {
   pub fn new(preamble: DnsRecordPreamble, ip: Ipv4Addr) -> Self {
     Self { preamble, ip }
+  }
+
+  pub fn to_bytes(&mut self) -> Vec<u8> {
+    let mut result = Vec::new();
+
+    result.append(&mut self.preamble.to_bytes());
+    result.push(self.ip.octets()[0]);
+    result.push(self.ip.octets()[1]);
+    result.push(self.ip.octets()[2]);
+    result.push(self.ip.octets()[3]);
+
+    result
   }
 }
 
@@ -533,9 +627,14 @@ pub fn domain_name_to_bytes(value: &str) -> Vec<u8> {
   result
 }
 
-pub fn get_name_from_packet(bytes: &[u8], start: usize, depth: i32) -> (String, usize) {
+pub fn get_name_from_packet(
+  bytes: &[u8],
+  start: usize,
+  depth: i32,
+) -> Result<(String, usize), Error> {
   if depth == 20 {
-    panic!("too many jumps!!!! :(");
+    panic!();
+    return Err(Error::new(ErrorKind::InvalidData, "Loop limit exceeded"));
   }
 
   let mut result = "".to_string();
@@ -548,7 +647,7 @@ pub fn get_name_from_packet(bytes: &[u8], start: usize, depth: i32) -> (String, 
       index += 2;
 
       let jump_index = (((length_byte as u16) ^ 0xC0) << 8) | offset_byte;
-      let (part, _) = get_name_from_packet(bytes, jump_index as usize, depth + 1);
+      let (part, _) = get_name_from_packet(bytes, jump_index as usize, depth + 1)?;
       result.push_str(part.as_str());
       break;
     } else {
@@ -569,7 +668,7 @@ pub fn get_name_from_packet(bytes: &[u8], start: usize, depth: i32) -> (String, 
       index = end;
     }
   }
-  (result, index)
+  Ok((result, index))
 }
 
 pub fn u16_to_bytes(num: u16) -> Vec<u8> {
@@ -585,18 +684,44 @@ pub fn u32_to_bytes(num: u32) -> Vec<u8> {
   ]
 }
 
-pub fn get_u16(bytes: &[u8]) -> u16 {
-  assert_eq!(bytes.len(), 2, "Expected bytes to have length of 2");
-  (bytes[0] as u16) << 8 | (bytes[1] as u16)
+pub fn get_u16(bytes: &[u8], index: usize) -> Result<u16, Error> {
+  if index <= bytes.len() - 2 {
+    Ok((bytes[index] as u16) << 8 | (bytes[index + 1] as u16))
+  } else {
+    panic!();
+    Err(Error::new(
+      ErrorKind::InvalidData,
+      "Not enough bytes to get a u16",
+    ))
+  }
 }
 
-pub fn get_u32(bytes: &[u8]) -> u32 {
-  assert_eq!(bytes.len(), 4, "Expected bytes to have length of 4");
-  (bytes[0] as u32) << 24 | (bytes[1] as u32) << 16 | (bytes[2] as u32) << 8 | (bytes[3] as u32)
+pub fn get_u32(bytes: &[u8], index: usize) -> Result<u32, Error> {
+  if index <= bytes.len() - 4 {
+    Ok(
+      (bytes[index] as u32) << 24
+        | (bytes[index + 1] as u32) << 16
+        | (bytes[index + 2] as u32) << 8
+        | (bytes[index + 3] as u32),
+    )
+  } else {
+    panic!();
+    Err(Error::new(
+      ErrorKind::InvalidData,
+      "Not enough bytes to get a u32",
+    ))
+  }
 }
 
 pub fn print_hex(bytes: String) {
   for i in bytes.as_bytes() {
+    print!("{:02X} ", i);
+  }
+  println!();
+}
+
+pub fn print_hex_bytes(bytes: &Vec<u8>) {
+  for i in bytes {
     print!("{:02X} ", i);
   }
   println!();
