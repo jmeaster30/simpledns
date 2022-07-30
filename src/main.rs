@@ -1,9 +1,9 @@
-pub mod dns_protocol;
+pub mod dns_packet;
 
-use std::net::UdpSocket;
 use std::io::Error;
+use std::net::UdpSocket;
 
-use crate::dns_protocol::*;
+use crate::dns_packet::*;
 
 fn main() -> Result<(), Error> {
   let qname = "google.com";

@@ -72,131 +72,86 @@ impl DnsPacket {
     }
 
     for _ in 0..header.answer_count {
-      let mut record_preamble = DnsRecordPreamble::new();
-      (record_preamble.domain, buffer_index) = get_name_from_packet(buffer, buffer_index, 0);
-      record_preamble.query_type =
-        DnsQueryType::from_num(get_u16(&buffer[buffer_index..(buffer_index + 2)]));
-      buffer_index += 2;
-      record_preamble.class = get_u16(&buffer[buffer_index..(buffer_index + 2)]);
-      buffer_index += 2;
-      record_preamble.ttl = get_u32(&buffer[buffer_index..(buffer_index + 4)]);
-      buffer_index += 4;
-      record_preamble.len = get_u16(&buffer[buffer_index..(buffer_index + 2)]);
-      buffer_index += 2;
-
-      let data_len = record_preamble.len as usize;
-
-      match record_preamble.query_type {
-        DnsQueryType::Unknown(_) => {
-          let body = &buffer[buffer_index..(buffer_index + data_len)];
-          packet
-            .answer_section
-            .push(DnsRecord::Unknown(DnsRecordUnknown::new(
-              record_preamble,
-              body.to_vec(),
-            )));
-          buffer_index += data_len;
-        }
-        DnsQueryType::A => {
-          let addr = Ipv4Addr::new(
-            buffer[buffer_index],
-            buffer[buffer_index + 1],
-            buffer[buffer_index + 2],
-            buffer[buffer_index + 3],
-          );
-          packet
-            .answer_section
-            .push(DnsRecord::A(DnsRecordA::new(record_preamble, addr)));
-          buffer_index += 4;
-        }
-      }
+      let record;
+      (record, buffer_index) = parse_dns_record(buffer, buffer_index);
+      packet.answer_section.push(record);
     }
 
-    // TODO refactor this
     for _ in 0..header.authority_count {
-      let mut record_preamble = DnsRecordPreamble::new();
-      (record_preamble.domain, buffer_index) = get_name_from_packet(buffer, buffer_index, 0);
-      record_preamble.query_type =
-        DnsQueryType::from_num(get_u16(&buffer[buffer_index..(buffer_index + 2)]));
-      buffer_index += 2;
-      record_preamble.class = get_u16(&buffer[buffer_index..(buffer_index + 2)]);
-      buffer_index += 2;
-      record_preamble.ttl = get_u32(&buffer[buffer_index..(buffer_index + 4)]);
-      buffer_index += 4;
-      record_preamble.len = get_u16(&buffer[buffer_index..(buffer_index + 2)]);
-      buffer_index += 2;
-
-      let data_len = record_preamble.len as usize;
-
-      match record_preamble.query_type {
-        DnsQueryType::Unknown(_) => {
-          let body = &buffer[buffer_index..(buffer_index + data_len)];
-          packet
-            .authority_section
-            .push(DnsRecord::Unknown(DnsRecordUnknown::new(
-              record_preamble,
-              body.to_vec(),
-            )));
-          buffer_index += data_len;
-        }
-        DnsQueryType::A => {
-          let addr = Ipv4Addr::new(
-            buffer[buffer_index],
-            buffer[buffer_index + 1],
-            buffer[buffer_index + 2],
-            buffer[buffer_index + 3],
-          );
-          packet
-            .authority_section
-            .push(DnsRecord::A(DnsRecordA::new(record_preamble, addr)));
-          buffer_index += 4;
-        }
-      }
+      let record;
+      (record, buffer_index) = parse_dns_record(buffer, buffer_index);
+      packet.authority_section.push(record);
     }
 
-    // TODO refactor this
     for _ in 0..header.additional_count {
-      let mut record_preamble = DnsRecordPreamble::new();
-      (record_preamble.domain, buffer_index) = get_name_from_packet(buffer, buffer_index, 0);
-      record_preamble.query_type =
-        DnsQueryType::from_num(get_u16(&buffer[buffer_index..(buffer_index + 2)]));
-      buffer_index += 2;
-      record_preamble.class = get_u16(&buffer[buffer_index..(buffer_index + 2)]);
-      buffer_index += 2;
-      record_preamble.ttl = get_u32(&buffer[buffer_index..(buffer_index + 4)]);
-      buffer_index += 4;
-      record_preamble.len = get_u16(&buffer[buffer_index..(buffer_index + 2)]);
-      buffer_index += 2;
-
-      let data_len = record_preamble.len as usize;
-
-      match record_preamble.query_type {
-        DnsQueryType::Unknown(_) => {
-          let body = &buffer[buffer_index..(buffer_index + data_len)];
-          packet
-            .additional_section
-            .push(DnsRecord::Unknown(DnsRecordUnknown::new(
-              record_preamble,
-              body.to_vec(),
-            )));
-          buffer_index += data_len;
-        }
-        DnsQueryType::A => {
-          let addr = Ipv4Addr::new(
-            buffer[buffer_index],
-            buffer[buffer_index + 1],
-            buffer[buffer_index + 2],
-            buffer[buffer_index + 3],
-          );
-          packet
-            .additional_section
-            .push(DnsRecord::A(DnsRecordA::new(record_preamble, addr)));
-          buffer_index += 4;
-        }
-      }
+      let record;
+      (record, buffer_index) = parse_dns_record(buffer, buffer_index);
+      packet.additional_section.push(record);
     }
 
     packet
+  }
+}
+
+fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> (DnsRecord, usize) {
+  let mut index = buffer_index;
+  let mut record_preamble = DnsRecordPreamble::new();
+  (record_preamble.domain, index) = get_name_from_packet(buffer, index, 0);
+  record_preamble.query_type =
+    DnsQueryType::from_num(get_u16(&buffer[index..(index + 2)]));
+  index += 2;
+  record_preamble.class = get_u16(&buffer[index..(index + 2)]);
+  index += 2;
+  record_preamble.ttl = get_u32(&buffer[index..(index + 4)]);
+  index += 4;
+  record_preamble.len = get_u16(&buffer[index..(index + 2)]);
+  index += 2;
+
+  let data_len = record_preamble.len as usize;
+
+  match record_preamble.query_type {
+    DnsQueryType::Unknown(_) => {
+      let body = &buffer[index..(index + data_len)];
+      index += data_len;
+      (DnsRecord::Unknown(DnsRecordUnknown::new(record_preamble, body.to_vec())), index)
+    }
+    DnsQueryType::A => {
+      let addr = Ipv4Addr::new(
+        buffer[index],
+        buffer[index + 1],
+        buffer[index + 2],
+        buffer[index + 3],
+      );
+      index += 4;
+      (DnsRecord::A(DnsRecordA::new(record_preamble, addr)), index)
+    }
+    DnsQueryType::NS => {
+      let mut domain = String::new();
+      (domain, index) = get_name_from_packet(buffer, index, 0);
+      (DnsRecord::NS(DnsRecordNS::new(record_preamble, domain)), index)
+    }
+    DnsQueryType::CNAME => {
+      let mut domain = String::new();
+      (domain, index) = get_name_from_packet(buffer, index, 0);
+      (DnsRecord::CNAME(DnsRecordCNAME::new(record_preamble, domain)), index)
+    }
+    DnsQueryType::MX => {
+      let priority = get_u16(&buffer[index..(index + 2)]);
+      index += 2;
+      let mut domain = String::new();
+      (domain, index) = get_name_from_packet(buffer, index, 0);
+      (DnsRecord::MX(DnsRecordMX::new(record_preamble, priority, domain)), index)
+    }
+    DnsQueryType::AAAA => {
+      let addr = Ipv4Addr::new(
+        buffer[index],
+        buffer[index + 1],
+        buffer[index + 2],
+        buffer[index + 3],
+      );
+      index += 4;
+      (DnsRecord::AAAA(DnsRecordAAAA::new(record_preamble, addr)), index)
+    }
   }
 }
 
@@ -331,17 +286,19 @@ impl DnsHeader {
     let mut result = Vec::new();
 
     result.append(&mut u16_to_bytes(self.id));
-    result.push((self.recurse_desired as u8) |
-      ((self.truncated_message as u8) << 1) |
-      ((self.auth_answer as u8) << 2) |
-      ((self.op_code.to_num()) << 3) |
-      ((self.query_response as u8) << 7)
-    );    
-    result.push((self.response_code.to_num()) |
-      ((self.checking_disabled as u8) << 4) |
-      ((self.authed_data as u8) << 5) |
-      ((self.z as u8) << 6) |
-      ((self.recurse_available as u8) << 7)
+    result.push(
+      (self.recurse_desired as u8)
+        | ((self.truncated_message as u8) << 1)
+        | ((self.auth_answer as u8) << 2)
+        | ((self.op_code.to_num()) << 3)
+        | ((self.query_response as u8) << 7),
+    );
+    result.push(
+      (self.response_code.to_num())
+        | ((self.checking_disabled as u8) << 4)
+        | ((self.authed_data as u8) << 5)
+        | ((self.z as u8) << 6)
+        | ((self.recurse_available as u8) << 7),
     );
     result.append(&mut u16_to_bytes(self.question_count));
     result.append(&mut u16_to_bytes(self.answer_count));
@@ -381,7 +338,11 @@ pub struct DnsQuestion {
 
 impl DnsQuestion {
   pub fn new(name: String, query_type: DnsQueryType) -> Self {
-    Self { name, query_type, class: 1 }
+    Self {
+      name,
+      query_type,
+      class: 1,
+    }
   }
 
   pub fn to_bytes(&self) -> Vec<u8> {
@@ -407,6 +368,10 @@ impl DnsQuestion {
 pub enum DnsRecord {
   Unknown(DnsRecordUnknown),
   A(DnsRecordA),
+  NS(DnsRecordNS),
+  CNAME(DnsRecordCNAME),
+  MX(DnsRecordMX),
+  AAAA(DnsRecordAAAA),
 }
 
 impl DnsRecord {
@@ -414,6 +379,10 @@ impl DnsRecord {
     match self {
       DnsRecord::Unknown(_) => todo!(),
       DnsRecord::A(_) => todo!(),
+      DnsRecord::NS(_) => todo!(),
+      DnsRecord::CNAME(_) => todo!(),
+      DnsRecord::MX(_) => todo!(),
+      DnsRecord::AAAA(_) => todo!(),
     }
   }
 }
@@ -422,19 +391,31 @@ impl DnsRecord {
 pub enum DnsQueryType {
   Unknown(u16),
   A,
+  NS,
+  CNAME,
+  MX,
+  AAAA,
 }
 
 impl DnsQueryType {
   pub fn to_num(&self) -> u16 {
     match self {
-      DnsQueryType::A => 1,
       DnsQueryType::Unknown(x) => *x,
+      DnsQueryType::A => 1,
+      DnsQueryType::NS => 2,
+      DnsQueryType::CNAME => 5,
+      DnsQueryType::MX => 15,
+      DnsQueryType::AAAA => 28,
     }
   }
 
   pub fn from_num(num: u16) -> DnsQueryType {
     match num {
       1 => DnsQueryType::A,
+      2 => DnsQueryType::NS,
+      5 => DnsQueryType::CNAME,
+      15 => DnsQueryType::MX,
+      28 => DnsQueryType::AAAA,
       x => DnsQueryType::Unknown(x),
     }
   }
@@ -480,6 +461,59 @@ pub struct DnsRecordA {
 }
 
 impl DnsRecordA {
+  pub fn new(preamble: DnsRecordPreamble, ip: Ipv4Addr) -> Self {
+    Self { preamble, ip }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct DnsRecordNS {
+  pub preamble: DnsRecordPreamble,
+  pub host: String,
+}
+
+impl DnsRecordNS {
+  pub fn new(preamble: DnsRecordPreamble, host: String) -> Self {
+    Self { preamble, host }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct DnsRecordCNAME {
+  pub preamble: DnsRecordPreamble,
+  pub host: String,
+}
+
+impl DnsRecordCNAME {
+  pub fn new(preamble: DnsRecordPreamble, host: String) -> Self {
+    Self { preamble, host }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct DnsRecordMX {
+  pub preamble: DnsRecordPreamble,
+  pub priority: u16,
+  pub host: String,
+}
+
+impl DnsRecordMX {
+  pub fn new(preamble: DnsRecordPreamble, priority: u16, host: String) -> Self {
+    Self {
+      preamble,
+      priority,
+      host,
+    }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct DnsRecordAAAA {
+  pub preamble: DnsRecordPreamble,
+  pub ip: Ipv4Addr,
+}
+
+impl DnsRecordAAAA {
   pub fn new(preamble: DnsRecordPreamble, ip: Ipv4Addr) -> Self {
     Self { preamble, ip }
   }
@@ -544,10 +578,10 @@ pub fn u16_to_bytes(num: u16) -> Vec<u8> {
 
 pub fn u32_to_bytes(num: u32) -> Vec<u8> {
   vec![
-    ((num >> 24) & 0xFF) as u8, 
-    ((num >> 16) & 0xFF) as u8, 
-    ((num >> 8) & 0xFF) as u8, 
-    (num & 0xFF) as u8
+    ((num >> 24) & 0xFF) as u8,
+    ((num >> 16) & 0xFF) as u8,
+    ((num >> 8) & 0xFF) as u8,
+    (num & 0xFF) as u8,
   ]
 }
 
