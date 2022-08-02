@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::io::ErrorKind;
+use std::net::Ipv4Addr;
+use std::str::FromStr;
 use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Duration;
@@ -18,7 +20,7 @@ use yaml_rust::YamlLoader;
 use notify::{Watcher, RecursiveMode, watcher};
 
 use crate::dns_server::DnsServer;
-use crate::dns_packet::DnsRecord;
+use crate::dns_packet::*;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about = "A simple dns server :)", long_about = None)]
@@ -27,7 +29,21 @@ struct Args {
   config: String,
 }
 
-fn load_settings(filename: String) -> Result<(u16, u16, Vec<String>, HashMap<String, DnsRecord>), Box<dyn Error>> {
+fn insert(map: &mut HashMap<String, Vec<DnsRecord>>, key: String, value: DnsRecord) {
+  match map.get(&key) {
+    Some(mut current) => {
+      let mut updated = Vec::new();
+      for c in current {
+        updated.push(c.clone());
+      }
+      updated.push(value);
+      map.insert(key, updated.to_vec())
+    }
+    None => map.insert(key, vec![value])
+  };
+}
+
+fn load_settings(filename: String) -> Result<(u16, u16, Vec<String>, HashMap<String, Vec<DnsRecord>>), Box<dyn Error>> {
   let contents = fs::read_to_string(filename)
     .expect("Aw man, there was an issue while opening the config file :(");
 
@@ -52,7 +68,90 @@ fn load_settings(filename: String) -> Result<(u16, u16, Vec<String>, HashMap<Str
         }).collect(),
         None => Vec::new()
       };
-      Ok((listen_port, backup_port, servers, HashMap::new()))
+      let mut parsed_records = HashMap::new();
+      let config_records = match config_settings["records"].as_vec() {
+        Some(records) => {
+          let mut res = Vec::new();
+          for rec in records {
+            let mut name;
+            match rec["domain"].as_str() {
+              Some(x) => name = x,
+              None => continue
+            }
+            let query_type = match rec["type"].as_str() {
+              Some(x) => DnsQueryType::from_string(x),
+              None => DnsQueryType::Unknown(0),
+            };
+            let class = match rec["class"].as_i64() {
+              Some(x) => x as u16,
+              None => 1
+            };
+            let ttl = match rec["ttl"].as_i64() {
+              Some(x) => x as u32,
+              None => 600
+            };
+            let mut record_preamble = DnsRecordPreamble::new();
+            record_preamble.domain = name.to_string();
+            record_preamble.query_type = query_type;
+            record_preamble.class = class;
+            record_preamble.ttl = ttl;
+            match query_type {
+              DnsQueryType::Unknown(_) => { eprintln!("Unknown record type for record '{}'", record_preamble.domain); },
+              DnsQueryType::DROP => {
+                res.push(DnsRecord::DROP(DnsRecordDROP::new(record_preamble)));
+              }
+              DnsQueryType::AAAA => {
+                match rec["ip"].as_str() {
+                  Some(x) => res.push(DnsRecord::AAAA(DnsRecordAAAA::new(&mut record_preamble, Ipv4Addr::from_str(x)?))),
+                  None => { eprintln!("No ip given for record '{}'. Skipping...", record_preamble.domain ); continue; }
+                }
+              },
+              DnsQueryType::A => {
+                match rec["ip"].as_str() {
+                  Some(x) => res.push(DnsRecord::A(DnsRecordA::new(&mut record_preamble, Ipv4Addr::from_str(x)?))),
+                  None => { eprintln!("No ip given for record '{}'. Skipping...", record_preamble.domain ); continue; }
+                }
+              },
+              DnsQueryType::NS => {
+                match rec["hostname"].as_str() {
+                  Some(x) => res.push(DnsRecord::NS(DnsRecordNS::new(&mut record_preamble, x.to_string()))),
+                  None => { eprintln!("No hostname given for record '{}'. Skipping...", record_preamble.domain ); continue; }
+                }
+              },
+              DnsQueryType::CNAME => {
+                match rec["hostname"].as_str() {
+                  Some(x) => res.push(DnsRecord::CNAME(DnsRecordCNAME::new(&mut record_preamble, x.to_string()))),
+                  None => { eprintln!("No hostname given for record '{}'. Skipping...", record_preamble.domain ); continue; }
+                }
+              },
+              DnsQueryType::MX => {
+                let priority = match rec["priority"].as_i64() {
+                  Some(x) => x as u16,
+                  None => 1,
+                };
+                match rec["hostname"].as_str() {
+                  Some(x) => res.push(DnsRecord::A(DnsRecordA::new(&mut record_preamble, Ipv4Addr::from_str(x)?))),
+                  None => { eprintln!("No hostname given for record '{}'. Skipping...", record_preamble.domain ); continue; }
+                }
+              },
+            }
+          }
+          res
+        }
+        None => { println!("No records found in config!"); Vec::new() }
+      };
+      for rec in config_records {
+        match &rec {
+          DnsRecord::A(r) => insert(&mut parsed_records, r.preamble.domain.clone(), rec),
+          DnsRecord::Unknown(r) => insert(&mut parsed_records, r.preamble.domain.clone(), rec),
+          DnsRecord::NS(r) => insert(&mut parsed_records, r.preamble.domain.clone(), rec),
+          DnsRecord::CNAME(r) => insert(&mut parsed_records, r.preamble.domain.clone(), rec),
+          DnsRecord::MX(r) => insert(&mut parsed_records, r.preamble.domain.clone(), rec),
+          DnsRecord::AAAA(r) => insert(&mut parsed_records, r.preamble.domain.clone(), rec),
+          DnsRecord::DROP(r) => insert(&mut parsed_records, r.preamble.domain.clone(), rec),
+        }
+      }
+      Ok((listen_port, backup_port, servers, parsed_records))
     }
     None => Err(Box::new(std::io::Error::new(ErrorKind::Other, "Parsing the config file lead to no yaml documents :(")))
   }
@@ -68,8 +167,9 @@ fn main() -> Result<(), Box<dyn Error>> {
   println!("Listening Port: {}", listen_port);
   println!("Backup Port: {}", backup_port);
   println!("Servers: {:#?}", servers);
+  println!("Records: {:#?}", records);
 
-  let mut server = DnsServer::new(listen_port, backup_port, servers, HashMap::new());
+  let mut server = DnsServer::new(listen_port, backup_port, servers, records);
   
   let (fw_sender, fw_receiver) = channel();
   let mut watcher = watcher(fw_sender, Duration::from_secs(10)).unwrap();

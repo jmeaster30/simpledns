@@ -110,10 +110,11 @@ fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> Result<(DnsRecord, us
 
   match record_preamble.query_type {
     DnsQueryType::Unknown(_) => {
+      println!("length here {}", data_len);
       let body = &buffer[index..(index + data_len)];
       index += data_len;
       Ok((
-        DnsRecord::Unknown(DnsRecordUnknown::new(record_preamble, body.to_vec())),
+        DnsRecord::Unknown(DnsRecordUnknown::new(&mut record_preamble, body.to_vec())),
         index,
       ))
     }
@@ -125,13 +126,13 @@ fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> Result<(DnsRecord, us
         buffer[index + 3],
       );
       index += 4;
-      Ok((DnsRecord::A(DnsRecordA::new(record_preamble, addr)), index))
+      Ok((DnsRecord::A(DnsRecordA::new(&mut record_preamble, addr)), index))
     }
     DnsQueryType::NS => {
       let mut domain = String::new();
       (domain, index) = get_name_from_packet(buffer, index, 0)?;
       Ok((
-        DnsRecord::NS(DnsRecordNS::new(record_preamble, domain)),
+        DnsRecord::NS(DnsRecordNS::new(&mut record_preamble, domain)),
         index,
       ))
     }
@@ -139,7 +140,7 @@ fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> Result<(DnsRecord, us
       let mut domain = String::new();
       (domain, index) = get_name_from_packet(buffer, index, 0)?;
       Ok((
-        DnsRecord::CNAME(DnsRecordCNAME::new(record_preamble, domain)),
+        DnsRecord::CNAME(DnsRecordCNAME::new(&mut record_preamble, domain)),
         index,
       ))
     }
@@ -149,7 +150,7 @@ fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> Result<(DnsRecord, us
       let mut domain = String::new();
       (domain, index) = get_name_from_packet(buffer, index, 0)?;
       Ok((
-        DnsRecord::MX(DnsRecordMX::new(record_preamble, priority, domain)),
+        DnsRecord::MX(DnsRecordMX::new(&mut record_preamble, priority, domain)),
         index,
       ))
     }
@@ -162,10 +163,14 @@ fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> Result<(DnsRecord, us
       );
       index += 4;
       Ok((
-        DnsRecord::AAAA(DnsRecordAAAA::new(record_preamble, addr)),
+        DnsRecord::AAAA(DnsRecordAAAA::new(&mut record_preamble, addr)),
         index,
       ))
     }
+    DnsQueryType::DROP => { Err(Error::new(
+      ErrorKind::InvalidData,
+      "Stop",
+    )) }
   }
 }
 
@@ -393,6 +398,7 @@ pub enum DnsRecord {
   CNAME(DnsRecordCNAME),
   MX(DnsRecordMX),
   AAAA(DnsRecordAAAA),
+  DROP(DnsRecordDROP),
 }
 
 impl DnsRecord {
@@ -404,11 +410,12 @@ impl DnsRecord {
       DnsRecord::CNAME(x) => x.to_bytes(),
       DnsRecord::MX(x) => x.to_bytes(),
       DnsRecord::AAAA(x) => x.to_bytes(),
+      DnsRecord::DROP(x) => Vec::new(),
     }
   }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum DnsQueryType {
   Unknown(u16),
   A,
@@ -416,6 +423,7 @@ pub enum DnsQueryType {
   CNAME,
   MX,
   AAAA,
+  DROP,
 }
 
 impl DnsQueryType {
@@ -427,6 +435,7 @@ impl DnsQueryType {
       DnsQueryType::CNAME => 5,
       DnsQueryType::MX => 15,
       DnsQueryType::AAAA => 28,
+      DnsQueryType::DROP => 666,
     }
   }
 
@@ -437,7 +446,20 @@ impl DnsQueryType {
       5 => DnsQueryType::CNAME,
       15 => DnsQueryType::MX,
       28 => DnsQueryType::AAAA,
+      666 => DnsQueryType::DROP,
       x => DnsQueryType::Unknown(x),
+    }
+  }
+
+  pub fn from_string(value: &str) -> DnsQueryType {
+    match value {
+      "A" => DnsQueryType::A,
+      "NS" => DnsQueryType::NS,
+      "CNAME" => DnsQueryType::CNAME,
+      "MX" => DnsQueryType::MX,
+      "AAAA" => DnsQueryType::AAAA,
+      "DROP" => DnsQueryType::DROP,
+      _ => DnsQueryType::Unknown(0),
     }
   }
 }
@@ -482,8 +504,9 @@ pub struct DnsRecordUnknown {
 }
 
 impl DnsRecordUnknown {
-  pub fn new(preamble: DnsRecordPreamble, body: Vec<u8>) -> Self {
-    Self { preamble, body }
+  pub fn new(preamble: &mut DnsRecordPreamble, body: Vec<u8>) -> Self {
+    preamble.len = body.len() as u16;
+    Self { preamble: preamble.clone(), body }
   }
 
   pub fn to_bytes(&mut self) -> Vec<u8> {
@@ -497,14 +520,26 @@ impl DnsRecordUnknown {
 }
 
 #[derive(Clone, Debug)]
+pub struct DnsRecordDROP {
+  pub preamble: DnsRecordPreamble,
+}
+
+impl DnsRecordDROP {
+  pub fn new(preamble: DnsRecordPreamble) -> Self {
+    Self { preamble }
+  }
+}
+
+#[derive(Clone, Debug)]
 pub struct DnsRecordA {
   pub preamble: DnsRecordPreamble,
   pub ip: Ipv4Addr,
 }
 
 impl DnsRecordA {
-  pub fn new(preamble: DnsRecordPreamble, ip: Ipv4Addr) -> Self {
-    Self { preamble, ip }
+  pub fn new(preamble: &mut DnsRecordPreamble, ip: Ipv4Addr) -> Self {
+    preamble.len = 4;
+    Self { preamble: preamble.clone(), ip }
   }
 
   pub fn to_bytes(&mut self) -> Vec<u8> {
@@ -527,8 +562,10 @@ pub struct DnsRecordNS {
 }
 
 impl DnsRecordNS {
-  pub fn new(preamble: DnsRecordPreamble, host: String) -> Self {
-    Self { preamble, host }
+  pub fn new(preamble: &mut DnsRecordPreamble, host: String) -> Self {
+    let len = domain_name_to_bytes(host.as_str()).len();
+    preamble.len = len as u16;
+    Self { preamble: preamble.clone(), host }
   }
 
   pub fn to_bytes(&mut self) -> Vec<u8> {
@@ -548,8 +585,10 @@ pub struct DnsRecordCNAME {
 }
 
 impl DnsRecordCNAME {
-  pub fn new(preamble: DnsRecordPreamble, host: String) -> Self {
-    Self { preamble, host }
+  pub fn new(preamble: &mut DnsRecordPreamble, host: String) -> Self {
+    let len = domain_name_to_bytes(host.as_str()).len() as u16;
+    preamble.len = len;
+    Self { preamble: preamble.clone(), host }
   }
 
   pub fn to_bytes(&mut self) -> Vec<u8> {
@@ -570,9 +609,11 @@ pub struct DnsRecordMX {
 }
 
 impl DnsRecordMX {
-  pub fn new(preamble: DnsRecordPreamble, priority: u16, host: String) -> Self {
+  pub fn new(preamble: &mut DnsRecordPreamble, priority: u16, host: String) -> Self {
+    let len = domain_name_to_bytes(host.as_str()).len() + 2;
+    preamble.len = len as u16;
     Self {
-      preamble,
+      preamble: preamble.clone(),
       priority,
       host,
     }
@@ -596,8 +637,9 @@ pub struct DnsRecordAAAA {
 }
 
 impl DnsRecordAAAA {
-  pub fn new(preamble: DnsRecordPreamble, ip: Ipv4Addr) -> Self {
-    Self { preamble, ip }
+  pub fn new(preamble: &mut DnsRecordPreamble, ip: Ipv4Addr) -> Self {
+    preamble.len = 4;
+    Self { preamble: preamble.clone(), ip }
   }
 
   pub fn to_bytes(&mut self) -> Vec<u8> {
