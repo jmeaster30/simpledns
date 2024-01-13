@@ -31,19 +31,19 @@ impl DnsPacket {
     self.header.answer_count += 1;
   }
 
-  pub fn to_bytes(&mut self) -> Vec<u8> {
+  pub fn to_bytes(&self) -> Vec<u8> {
     let mut result = Vec::new();
     result.append(&mut self.header.to_bytes());
-    for q in &mut self.question_section {
+    for q in &self.question_section {
       result.append(&mut q.to_bytes());
     }
-    for a in &mut self.answer_section {
+    for a in &self.answer_section {
       result.append(&mut a.to_bytes());
     }
-    for a in &mut self.authority_section {
+    for a in &self.authority_section {
       result.append(&mut a.to_bytes());
     }
-    for a in &mut self.additional_section {
+    for a in &self.additional_section {
       result.append(&mut a.to_bytes());
     }
     result

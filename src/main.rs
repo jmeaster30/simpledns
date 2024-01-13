@@ -2,6 +2,7 @@ pub mod dns_packet;
 pub mod dns_server;
 mod settings;
 mod logger;
+mod dns_resolver;
 
 extern crate clap;
 extern crate yaml_rust;
@@ -15,6 +16,7 @@ use clap::Parser;
 
 use crate::dns_server::DnsServer;
 use crate::dns_packet::*;
+use crate::dns_resolver::DnsResolver;
 use crate::settings::{build_config_file_watcher, DnsSettings};
 
 #[derive(Parser, Debug)]
@@ -51,7 +53,7 @@ fn main() -> Result<(), Box<dyn Error>> {
   log_info!("Servers: {:#?}", settings.servers);
   log_info!("Records: {:#?}", settings.records);
 
-  let mut server = DnsServer::new(settings);
+  let mut server = DnsServer::new(settings.clone(), DnsResolver::new(settings));
 
   let (server_update_sender, server_update_receiver) = channel();
 

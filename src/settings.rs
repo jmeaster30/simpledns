@@ -11,7 +11,7 @@ use yaml_rust::YamlLoader;
 use crate::dns_packet::{DnsQueryType, DnsRecord, DnsRecordA, DnsRecordAAAA, DnsRecordCNAME, DnsRecordDROP, DnsRecordMX, DnsRecordNS, DnsRecordPreamble};
 use crate::{insert, log_error, log_info};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DnsSettings {
     pub listening_port: u16,
     pub backup_port: u16,
