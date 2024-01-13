@@ -110,7 +110,6 @@ fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> Result<(DnsRecord, us
 
   match record_preamble.query_type {
     DnsQueryType::Unknown(_) => {
-      println!("length here {}", data_len);
       let body = &buffer[index..(index + data_len)];
       index += data_len;
       Ok((
@@ -129,7 +128,7 @@ fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> Result<(DnsRecord, us
       Ok((DnsRecord::A(DnsRecordA::new(&mut record_preamble, addr)), index))
     }
     DnsQueryType::NS => {
-      let mut domain = String::new();
+      let domain;
       (domain, index) = get_name_from_packet(buffer, index, 0)?;
       Ok((
         DnsRecord::NS(DnsRecordNS::new(&mut record_preamble, domain)),
@@ -137,7 +136,7 @@ fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> Result<(DnsRecord, us
       ))
     }
     DnsQueryType::CNAME => {
-      let mut domain = String::new();
+      let domain ;
       (domain, index) = get_name_from_packet(buffer, index, 0)?;
       Ok((
         DnsRecord::CNAME(DnsRecordCNAME::new(&mut record_preamble, domain)),
@@ -147,7 +146,7 @@ fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> Result<(DnsRecord, us
     DnsQueryType::MX => {
       let priority = get_u16(buffer, index)?;
       index += 2;
-      let mut domain = String::new();
+      let domain ;
       (domain, index) = get_name_from_packet(buffer, index, 0)?;
       Ok((
         DnsRecord::MX(DnsRecordMX::new(&mut record_preamble, priority, domain)),
@@ -402,7 +401,19 @@ pub enum DnsRecord {
 }
 
 impl DnsRecord {
-  pub fn to_bytes(&mut self) -> Vec<u8> {
+  pub fn get_query_type(&self) -> DnsQueryType {
+    match self {
+      DnsRecord::Unknown(x) => x.preamble.query_type,
+      DnsRecord::A(x) => x.preamble.query_type,
+      DnsRecord::NS(x) => x.preamble.query_type,
+      DnsRecord::CNAME(x) => x.preamble.query_type,
+      DnsRecord::MX(x) => x.preamble.query_type,
+      DnsRecord::AAAA(x) => x.preamble.query_type,
+      DnsRecord::DROP(x) => x.preamble.query_type,
+    }
+  }
+
+  pub fn to_bytes(&self) -> Vec<u8> {
     match self {
       DnsRecord::Unknown(x) => x.to_bytes(),
       DnsRecord::A(x) => x.to_bytes(),
@@ -410,7 +421,7 @@ impl DnsRecord {
       DnsRecord::CNAME(x) => x.to_bytes(),
       DnsRecord::MX(x) => x.to_bytes(),
       DnsRecord::AAAA(x) => x.to_bytes(),
-      DnsRecord::DROP(x) => Vec::new(),
+      DnsRecord::DROP(_) => Vec::new(),
     }
   }
 }
@@ -509,11 +520,12 @@ impl DnsRecordUnknown {
     Self { preamble: preamble.clone(), body }
   }
 
-  pub fn to_bytes(&mut self) -> Vec<u8> {
+  pub fn to_bytes(&self) -> Vec<u8> {
     let mut result = Vec::new();
 
     result.append(&mut self.preamble.to_bytes());
-    result.append(&mut self.body);
+    let mut body_bytes = self.body.clone();
+    result.append(&mut body_bytes);
 
     result
   }
@@ -542,7 +554,7 @@ impl DnsRecordA {
     Self { preamble: preamble.clone(), ip }
   }
 
-  pub fn to_bytes(&mut self) -> Vec<u8> {
+  pub fn to_bytes(&self) -> Vec<u8> {
     let mut result = Vec::new();
 
     result.append(&mut self.preamble.to_bytes());
@@ -568,7 +580,7 @@ impl DnsRecordNS {
     Self { preamble: preamble.clone(), host }
   }
 
-  pub fn to_bytes(&mut self) -> Vec<u8> {
+  pub fn to_bytes(&self) -> Vec<u8> {
     let mut result = Vec::new();
 
     result.append(&mut self.preamble.to_bytes());
@@ -591,7 +603,7 @@ impl DnsRecordCNAME {
     Self { preamble: preamble.clone(), host }
   }
 
-  pub fn to_bytes(&mut self) -> Vec<u8> {
+  pub fn to_bytes(&self) -> Vec<u8> {
     let mut result = Vec::new();
 
     result.append(&mut self.preamble.to_bytes());
@@ -619,7 +631,7 @@ impl DnsRecordMX {
     }
   }
 
-  pub fn to_bytes(&mut self) -> Vec<u8> {
+  pub fn to_bytes(&self) -> Vec<u8> {
     let mut result = Vec::new();
 
     result.append(&mut self.preamble.to_bytes());
@@ -642,7 +654,7 @@ impl DnsRecordAAAA {
     Self { preamble: preamble.clone(), ip }
   }
 
-  pub fn to_bytes(&mut self) -> Vec<u8> {
+  pub fn to_bytes(&self) -> Vec<u8> {
     let mut result = Vec::new();
 
     result.append(&mut self.preamble.to_bytes());
@@ -675,7 +687,6 @@ pub fn get_name_from_packet(
   depth: i32,
 ) -> Result<(String, usize), Error> {
   if depth == 20 {
-    panic!();
     return Err(Error::new(ErrorKind::InvalidData, "Loop limit exceeded"));
   }
 
@@ -730,7 +741,6 @@ pub fn get_u16(bytes: &[u8], index: usize) -> Result<u16, Error> {
   if index <= bytes.len() - 2 {
     Ok((bytes[index] as u16) << 8 | (bytes[index + 1] as u16))
   } else {
-    panic!();
     Err(Error::new(
       ErrorKind::InvalidData,
       "Not enough bytes to get a u16",
@@ -747,7 +757,6 @@ pub fn get_u32(bytes: &[u8], index: usize) -> Result<u32, Error> {
         | (bytes[index + 3] as u32),
     )
   } else {
-    panic!();
     Err(Error::new(
       ErrorKind::InvalidData,
       "Not enough bytes to get a u32",

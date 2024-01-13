@@ -1,6 +1,6 @@
 [package]
 name = "simpledns"
-authors = ["Luna Cybi"]
+authors = ["Lily Cybi"]
 version = "0.1.0"
 edition = "2021"
 readme = "README.md"
@@ -8,7 +8,8 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-notify = "4.0.17"
+notify = "6.1.1"
 rand = "0.8.5"
 yaml-rust = "0.4"
-clap = { version = "3.2.16", features = ["derive"] }
+clap = { version = "4.4.16", features = ["derive"] }
+chrono = "0.4.31"
