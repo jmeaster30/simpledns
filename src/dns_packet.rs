@@ -113,7 +113,7 @@ fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> Result<(DnsRecord, us
       let body = &buffer[index..(index + data_len)];
       index += data_len;
       Ok((
-        DnsRecord::Unknown(DnsRecordUnknown::new(&mut record_preamble, body.to_vec())),
+        DnsRecord::Unknown(DnsRecordUnknown::new(record_preamble, body.to_vec())),
         index,
       ))
     }
@@ -125,31 +125,31 @@ fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> Result<(DnsRecord, us
         buffer[index + 3],
       );
       index += 4;
-      Ok((DnsRecord::A(DnsRecordA::new(&mut record_preamble, addr)), index))
+      Ok((DnsRecord::A(DnsRecordA::new(record_preamble, addr)), index))
     }
     DnsQueryType::NS => {
       let domain;
       (domain, index) = get_name_from_packet(buffer, index, 0)?;
       Ok((
-        DnsRecord::NS(DnsRecordNS::new(&mut record_preamble, domain)),
+        DnsRecord::NS(DnsRecordNS::new(record_preamble, domain)),
         index,
       ))
     }
     DnsQueryType::CNAME => {
-      let domain ;
+      let domain;
       (domain, index) = get_name_from_packet(buffer, index, 0)?;
       Ok((
-        DnsRecord::CNAME(DnsRecordCNAME::new(&mut record_preamble, domain)),
+        DnsRecord::CNAME(DnsRecordCNAME::new(record_preamble, domain)),
         index,
       ))
     }
     DnsQueryType::MX => {
       let priority = get_u16(buffer, index)?;
       index += 2;
-      let domain ;
+      let domain;
       (domain, index) = get_name_from_packet(buffer, index, 0)?;
       Ok((
-        DnsRecord::MX(DnsRecordMX::new(&mut record_preamble, priority, domain)),
+        DnsRecord::MX(DnsRecordMX::new(record_preamble, priority, domain)),
         index,
       ))
     }
@@ -162,14 +162,11 @@ fn parse_dns_record(buffer: &[u8], buffer_index: usize) -> Result<(DnsRecord, us
       );
       index += 4;
       Ok((
-        DnsRecord::AAAA(DnsRecordAAAA::new(&mut record_preamble, addr)),
+        DnsRecord::AAAA(DnsRecordAAAA::new(record_preamble, addr)),
         index,
       ))
     }
-    DnsQueryType::DROP => { Err(Error::new(
-      ErrorKind::InvalidData,
-      "Stop",
-    )) }
+    DnsQueryType::DROP => Err(Error::new(ErrorKind::InvalidData, "Stop")),
   }
 }
 
@@ -413,6 +410,18 @@ impl DnsRecord {
     }
   }
 
+  pub fn get_preamble(&self) -> DnsRecordPreamble {
+    match self {
+      DnsRecord::Unknown(x) => x.preamble.clone(),
+      DnsRecord::A(x) => x.preamble.clone(),
+      DnsRecord::NS(x) => x.preamble.clone(),
+      DnsRecord::CNAME(x) => x.preamble.clone(),
+      DnsRecord::MX(x) => x.preamble.clone(),
+      DnsRecord::AAAA(x) => x.preamble.clone(),
+      DnsRecord::DROP(x) => x.preamble.clone(),
+    }
+  }
+
   pub fn to_bytes(&self) -> Vec<u8> {
     match self {
       DnsRecord::Unknown(x) => x.to_bytes(),
@@ -515,9 +524,9 @@ pub struct DnsRecordUnknown {
 }
 
 impl DnsRecordUnknown {
-  pub fn new(preamble: &mut DnsRecordPreamble, body: Vec<u8>) -> Self {
+  pub fn new(mut preamble: DnsRecordPreamble, body: Vec<u8>) -> Self {
     preamble.len = body.len() as u16;
-    Self { preamble: preamble.clone(), body }
+    Self { preamble, body }
   }
 
   pub fn to_bytes(&self) -> Vec<u8> {
@@ -549,9 +558,9 @@ pub struct DnsRecordA {
 }
 
 impl DnsRecordA {
-  pub fn new(preamble: &mut DnsRecordPreamble, ip: Ipv4Addr) -> Self {
+  pub fn new(mut preamble: DnsRecordPreamble, ip: Ipv4Addr) -> Self {
     preamble.len = 4;
-    Self { preamble: preamble.clone(), ip }
+    Self { preamble, ip }
   }
 
   pub fn to_bytes(&self) -> Vec<u8> {
@@ -574,10 +583,10 @@ pub struct DnsRecordNS {
 }
 
 impl DnsRecordNS {
-  pub fn new(preamble: &mut DnsRecordPreamble, host: String) -> Self {
+  pub fn new(mut preamble: DnsRecordPreamble, host: String) -> Self {
     let len = domain_name_to_bytes(host.as_str()).len();
     preamble.len = len as u16;
-    Self { preamble: preamble.clone(), host }
+    Self { preamble, host }
   }
 
   pub fn to_bytes(&self) -> Vec<u8> {
@@ -597,10 +606,10 @@ pub struct DnsRecordCNAME {
 }
 
 impl DnsRecordCNAME {
-  pub fn new(preamble: &mut DnsRecordPreamble, host: String) -> Self {
+  pub fn new(mut preamble: DnsRecordPreamble, host: String) -> Self {
     let len = domain_name_to_bytes(host.as_str()).len() as u16;
     preamble.len = len;
-    Self { preamble: preamble.clone(), host }
+    Self { preamble, host }
   }
 
   pub fn to_bytes(&self) -> Vec<u8> {
@@ -621,7 +630,7 @@ pub struct DnsRecordMX {
 }
 
 impl DnsRecordMX {
-  pub fn new(preamble: &mut DnsRecordPreamble, priority: u16, host: String) -> Self {
+  pub fn new(mut preamble: DnsRecordPreamble, priority: u16, host: String) -> Self {
     let len = domain_name_to_bytes(host.as_str()).len() + 2;
     preamble.len = len as u16;
     Self {
@@ -649,9 +658,9 @@ pub struct DnsRecordAAAA {
 }
 
 impl DnsRecordAAAA {
-  pub fn new(preamble: &mut DnsRecordPreamble, ip: Ipv4Addr) -> Self {
+  pub fn new(mut preamble: DnsRecordPreamble, ip: Ipv4Addr) -> Self {
     preamble.len = 4;
-    Self { preamble: preamble.clone(), ip }
+    Self { preamble, ip }
   }
 
   pub fn to_bytes(&self) -> Vec<u8> {

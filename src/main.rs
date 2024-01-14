@@ -1,71 +1,85 @@
 pub mod dns_packet;
-pub mod dns_server;
-mod settings;
-mod logger;
 mod dns_resolver;
+pub mod dns_server;
+mod logger;
+mod settings;
+mod simple_database;
 
 extern crate clap;
 extern crate yaml_rust;
-extern crate notify;
 
-use std::collections::HashMap;
 use std::error::Error;
-use std::sync::mpsc::channel;
+use std::fs::{create_dir_all, File};
+use std::path::Path;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
-use crate::dns_server::DnsServer;
-use crate::dns_packet::*;
 use crate::dns_resolver::DnsResolver;
-use crate::settings::{build_config_file_watcher, DnsSettings};
+use crate::dns_server::DnsServer;
+use crate::settings::DnsSettings;
+use crate::simple_database::SimpleDatabase;
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about = "A simple dns server :)", long_about = None)]
+#[command(author, version, about = "A simple dns server :)", long_about = None)]
 struct Args {
-  #[clap(short, long, value_parser, default_value = "~/.config/simpledns/dns.config.yaml")]
-  config: String,
+  #[command(subcommand)]
+  command: Option<Commands>,
 }
 
-fn insert(map: &mut HashMap<String, Vec<DnsRecord>>, key: String, value: DnsRecord) {
-  match map.get(&key) {
-    Some(current) => {
-      let mut updated = Vec::new();
-      for c in current {
-        updated.push(c.clone());
-      }
-      updated.push(value);
-      map.insert(key, updated.to_vec())
-    }
-    None => map.insert(key, vec![value])
-  };
+#[derive(Debug, Subcommand)]
+enum Commands {
+  Start {
+    #[arg(short, long, value_parser, default_value = "~/.config/simpledns/dns.config.yaml")]
+    config: String,
+  },
+  Initialize {
+    #[arg(short, long, value_parser, default_value = "~/.config/simpledns/dns.config.yaml")]
+    config: String,
+  },
 }
-
-
 
 fn main() -> Result<(), Box<dyn Error>> {
   let args = Args::parse();
-  log_info!("Loading from config file '{}'...", args.config);
-  
-  let settings = DnsSettings::load(args.config.clone())?;
+  log_info!("Command: {:?}", args.command);
 
-  log_info!("Listening Port: {}", settings.listening_port);
-  log_info!("Backup Port: {}", settings.backup_port);
-  log_info!("Servers: {:#?}", settings.servers);
-  log_info!("Records: {:#?}", settings.records);
+  match args.command {
+    Some(Commands::Initialize { config }) => {
+      log_info!("Loading from config file '{}'...", config);
+      let settings = DnsSettings::load(config.clone())?;
+      log_info!("Database File Path: {:#?}", settings.database_file);
 
-  let mut server = DnsServer::new(settings.clone(), DnsResolver::new(settings));
+      let path = Path::new(settings.database_file.as_str());
+      let parent = path.parent().unwrap();
+      log_debug!("parent: {:?}", parent);
+      create_dir_all(parent)?;
+      File::create(path)?;
 
-  let (server_update_sender, server_update_receiver) = channel();
+      let database = SimpleDatabase::new(settings.database_file);
+      match database.initialize() {
+        Ok(_) => log_info!("Successfully initialized the database :)"),
+        Err(error) => log_error!("There was an error while initializing the database :( | {}", error),
+      }
+    }
+    Some(Commands::Start { config }) => {
+      log_info!("Loading from config file '{}'...", config);
+      let settings = DnsSettings::load(config.clone())?;
+      log_info!("Listening Port: {}", settings.listening_port);
+      log_info!("Backup Port: {}", settings.remote_lookup_port);
+      log_info!("Database File Path: {:#?}", settings.database_file);
 
-  build_config_file_watcher(args.config.clone(), server_update_sender)?;
+      let mut server = DnsServer::new(settings.clone(), DnsResolver::new(settings));
 
-  let _handle = std::thread::spawn(move || {
-    let _ = server.run(server_update_receiver);
-  });
+      let _handle = std::thread::spawn(move || {
+        let _ = server.run();
+      });
 
-  loop {}
+      loop {}
 
-  // TODO How to deal with this being dead code
-  _handle.join().unwrap();
+      // TODO How to deal with this being dead code
+      _handle.join().unwrap();
+    }
+    _ => log_error!("Unknown command :("),
+  }
+
   Ok(())
 }
