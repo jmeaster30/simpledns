@@ -10,9 +10,13 @@ extern crate yaml_rust;
 
 use std::error::Error;
 use std::fs::{create_dir_all, File};
+use std::io::{stdin, stdout, Write};
+use std::net::Ipv4Addr;
 use std::path::Path;
+use std::str::FromStr;
 
 use clap::{Parser, Subcommand};
+use crate::dns_packet::{DnsQueryType, DnsRecord, DnsRecordA, DnsRecordAAAA, DnsRecordCNAME, DnsRecordDROP, DnsRecordMX, DnsRecordNS, DnsRecordPreamble};
 
 use crate::dns_resolver::DnsResolver;
 use crate::dns_server::DnsServer;
@@ -23,7 +27,7 @@ use crate::simple_database::SimpleDatabase;
 #[command(author, version, about = "A simple dns server :)", long_about = None)]
 struct Args {
   #[command(subcommand)]
-  command: Option<Commands>,
+  command: Commands,
 }
 
 #[derive(Debug, Subcommand)]
@@ -32,9 +36,36 @@ enum Commands {
     #[arg(short, long, value_parser, default_value = "~/.config/simpledns/dns.config.yaml")]
     config: String,
   },
-  Initialize {
+  Init {
     #[arg(short, long, value_parser, default_value = "~/.config/simpledns/dns.config.yaml")]
     config: String,
+  },
+  Add {
+    #[arg(short, long, value_parser, default_value = "~/.config/simpledns/dns.config.yaml")]
+    config: String,
+    #[arg(short, long, action)]
+    interactive: bool,
+    #[arg(long, value_parser, required_unless_present("interactive"))]
+    domain: Option<String>,
+    #[arg(long, value_parser(["A", "NS", "CNAME", "MX", "AAAA", "DROP"]), required_unless_present("interactive"))]
+    query_type: Option<String>,
+    #[arg(long, value_parser, default_value = "1")]
+    class: u16,
+    #[arg(long, value_parser, default_value = "360")]
+    ttl: u32,
+    #[arg(long, value_parser, required_if_eq_any([
+      ("query_type", "NS"),
+      ("query_type", "CNAME"),
+      ("query_type", "MX")
+    ]))]
+    host: Option<String>,
+    #[arg(long, value_parser, required_if_eq_any([
+      ("query_type", "A"),
+      ("query_type", "AAAA"),
+    ]))]
+    ip: Option<String>,
+    #[arg(long, value_parser, required_if_eq("query_type", "MX"))]
+    priority: Option<u16>,
   },
 }
 
@@ -43,7 +74,7 @@ fn main() -> Result<(), Box<dyn Error>> {
   log_info!("Command: {:?}", args.command);
 
   match args.command {
-    Some(Commands::Initialize { config }) => {
+    Commands::Init { config } => {
       log_info!("Loading from config file '{}'...", config);
       let settings = DnsSettings::load(config.clone())?;
       log_info!("Database File Path: {:#?}", settings.database_file);
@@ -60,7 +91,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Err(error) => log_error!("There was an error while initializing the database :( | {}", error),
       }
     }
-    Some(Commands::Start { config }) => {
+    Commands::Start { config } => {
       log_info!("Loading from config file '{}'...", config);
       let settings = DnsSettings::load(config.clone())?;
       log_info!("Listening Port: {}", settings.listening_port);
@@ -70,6 +101,7 @@ fn main() -> Result<(), Box<dyn Error>> {
       let mut server = DnsServer::new(settings.clone(), DnsResolver::new(settings));
 
       let _handle = std::thread::spawn(move || {
+        log_info!("Successfully started server :)");
         let _ = server.run();
       });
 
@@ -78,8 +110,96 @@ fn main() -> Result<(), Box<dyn Error>> {
       // TODO How to deal with this being dead code
       _handle.join().unwrap();
     }
-    _ => log_error!("Unknown command :("),
+    Commands::Add { config, interactive, .. } if interactive => {
+      log_info!("Loading from config file '{}'...", config);
+      let settings = DnsSettings::load(config.clone())?;
+      log_info!("Database File Path: {:#?}", settings.database_file);
+
+      let domain = get_input("Domain: ", None, "A domain is required.", |x| !x.is_empty()); // TODO should check for valid domain
+      let query_type = DnsQueryType::from_string(get_input("Record Type: ",
+                                 None,
+                                 "A record type is required [A, NS, CNAME, MX, AAAA, DROP]",
+                                 |x| ["A", "NS", "CNAME", "MX", "AAAA", "DROP"].contains(&x.to_uppercase().as_str())).as_str());
+      let class = get_input("Class [default 1]: ",
+                            Some("1".to_string()),
+                            "A valid u16 must be supplied.",
+                            |x| !x.is_empty() && x.parse::<u16>().is_ok()).parse::<u16>().unwrap();
+      let ttl = get_input("TTL [default 300]: ",
+                          Some("300".to_string()),
+                          "A valid u32 must be supplied.",
+                          |x| !x.is_empty() && x.parse::<u32>().is_ok()).parse::<u32>().unwrap();
+      let preamble = DnsRecordPreamble::build(domain, query_type, class, ttl);
+
+      let record = match query_type {
+        DnsQueryType::Unknown(_) => panic!("Impossible state"),
+        DnsQueryType::A => {
+          let ip = get_input("IP: ", None, "A valid ip address is required.", |x| Ipv4Addr::from_str(x.as_str()).is_ok());
+          DnsRecord::A(DnsRecordA::new(preamble, Ipv4Addr::from_str(ip.as_str()).unwrap()))
+        }
+        DnsQueryType::NS => {
+          let host = get_input("Host: ", None, "A host is required.", |x| !x.is_empty());
+          DnsRecord::NS(DnsRecordNS::new(preamble, host))
+        }
+        DnsQueryType::CNAME => {
+          let host = get_input("Host: ", None, "A host is required.", |x| !x.is_empty());
+          DnsRecord::CNAME(DnsRecordCNAME::new(preamble, host))
+        }
+        DnsQueryType::MX => {
+          let host = get_input("Host: ", None, "A host is required.", |x| !x.is_empty());
+          let priority = get_input("Priority: ", None, "A valid u16 priority is required.", |x| !x.is_empty() && x.parse::<u16>().is_ok()).parse::<u16>().unwrap();
+          DnsRecord::MX(DnsRecordMX::new(preamble, priority, host))
+        }
+        DnsQueryType::AAAA => {
+          let ip = get_input("IP: ", None, "A valid ip address is required.", |x| Ipv4Addr::from_str(x.as_str()).is_ok());
+          DnsRecord::AAAA(DnsRecordAAAA::new(preamble, Ipv4Addr::from_str(ip.as_str()).unwrap()))
+        }
+        DnsQueryType::DROP => DnsRecord::DROP(DnsRecordDROP::new(preamble))
+      };
+
+      let database = SimpleDatabase::new(settings.database_file);
+      database.insert_record(record.clone())?;
+      log_info!("Successfully added record: {:?}", record);
+    }
+    Commands::Add { config, interactive, domain, query_type, class, ttl, host, ip, priority } if !interactive => {
+      log_info!("Loading from config file '{}'...", config);
+      let settings = DnsSettings::load(config.clone())?;
+      log_info!("Database File Path: {:#?}", settings.database_file);
+
+      let domain = domain.unwrap();
+      let query_type = DnsQueryType::from_string(query_type.unwrap().as_str());
+      let preamble = DnsRecordPreamble::build(domain, query_type, class, ttl);
+      let record = match query_type {
+        DnsQueryType::Unknown(_) => panic!("Impossible state"),
+        DnsQueryType::A => DnsRecord::A(DnsRecordA::new(preamble, Ipv4Addr::from_str(ip.unwrap().as_str()).expect("Couldn't parse ipv4 address"))),
+        DnsQueryType::NS => DnsRecord::NS(DnsRecordNS::new(preamble, host.unwrap())),
+        DnsQueryType::CNAME => DnsRecord::CNAME(DnsRecordCNAME::new(preamble, host.unwrap())),
+        DnsQueryType::MX => DnsRecord::MX(DnsRecordMX::new(preamble, priority.unwrap(), host.unwrap())),
+        DnsQueryType::AAAA => DnsRecord::AAAA(DnsRecordAAAA::new(preamble, Ipv4Addr::from_str(ip.unwrap().as_str()).expect("Couldn't parse ipv4 address"))),
+        DnsQueryType::DROP => DnsRecord::DROP(DnsRecordDROP::new(preamble)),
+      };
+
+      let database = SimpleDatabase::new(settings.database_file);
+      database.insert_record(record.clone())?;
+      log_info!("Successfully added record: {:?}", record);
+    }
+    _ => log_error!("Unknown command :( \n{:#?}", args),
   }
 
   Ok(())
+}
+
+pub fn get_input(message: &str, default_value: Option<String>, error_message: &str, validate: fn(String) -> bool) -> String {
+  loop {
+    let mut s = String::new();
+    print!("{}", message);
+    let _ = stdout().flush();
+    let _ = stdin().read_line(&mut s).expect("Did not enter a correct string");
+    s = s.trim_matches(&['\r', '\n', ' ', '\t']).to_string();
+    if validate(s.clone()) {
+      return s;
+    } else if let Some(value) = default_value.clone() {
+      return value;
+    }
+    println!("{}", error_message);
+  }
 }

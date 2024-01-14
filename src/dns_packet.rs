@@ -472,7 +472,7 @@ impl DnsQueryType {
   }
 
   pub fn from_string(value: &str) -> DnsQueryType {
-    match value {
+    match value.to_uppercase().as_str() {
       "A" => DnsQueryType::A,
       "NS" => DnsQueryType::NS,
       "CNAME" => DnsQueryType::CNAME,
@@ -501,6 +501,16 @@ impl DnsRecordPreamble {
       class: 0,
       ttl: 0,
       len: 0,
+    }
+  }
+
+  pub fn build(domain: String, query_type: DnsQueryType, class: u16, ttl: u32) -> Self {
+    Self {
+      domain,
+      query_type,
+      class,
+      ttl,
+      len: 0
     }
   }
 
