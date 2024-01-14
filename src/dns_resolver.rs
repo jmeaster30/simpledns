@@ -1,7 +1,7 @@
 use crate::dns_packet::{DnsPacket, DnsQueryType, DnsQuestion, DnsRecord, DnsResponseCode};
 use crate::settings::DnsSettings;
 use crate::simple_database::SimpleDatabase;
-use crate::{log_debug, log_error, log_info};
+use crate::{ignore_result_and_log_error, log_debug, log_error, log_info};
 use std::io::Error;
 use std::net::UdpSocket;
 
@@ -58,19 +58,22 @@ impl DnsResolver {
 
             for ans in result.answer_section {
               log_debug!("Answer: {:?}", ans);
-              packet.answer_section.push(ans);
+              packet.answer_section.push(ans.clone());
+              ignore_result_and_log_error!(self.database.insert_record(ans, true));
               packet.header.answer_count += 1;
             }
 
             for auth in result.authority_section {
               log_debug!("Authority: {:?}", auth);
-              packet.authority_section.push(auth);
+              packet.authority_section.push(auth.clone());
+              ignore_result_and_log_error!(self.database.insert_record(auth, true));
               packet.header.authority_count += 1;
             }
 
             for add in result.additional_section {
               log_debug!("Resource: {:?}", add);
-              packet.additional_section.push(add);
+              packet.additional_section.push(add.clone());
+              ignore_result_and_log_error!(self.database.insert_record(add, true));
               packet.header.additional_count += 1;
             }
           }
@@ -90,19 +93,22 @@ impl DnsResolver {
 
               for ans in result.answer_section {
                 log_debug!("Answer: {:?}", ans);
-                packet.answer_section.push(ans);
+                packet.answer_section.push(ans.clone());
+                ignore_result_and_log_error!(self.database.insert_record(ans, true));
                 packet.header.answer_count += 1;
               }
 
               for auth in result.authority_section {
                 log_debug!("Authority: {:?}", auth);
-                packet.authority_section.push(auth);
+                packet.authority_section.push(auth.clone());
+                ignore_result_and_log_error!(self.database.insert_record(auth, true));
                 packet.header.authority_count += 1;
               }
 
               for add in result.additional_section {
                 log_debug!("Resource: {:?}", add);
-                packet.additional_section.push(add);
+                packet.additional_section.push(add.clone());
+                ignore_result_and_log_error!(self.database.insert_record(add, true));
                 packet.header.additional_count += 1;
               }
             }

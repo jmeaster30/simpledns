@@ -14,7 +14,7 @@ pub struct DnsSettings {
 
 impl DnsSettings {
   pub fn load(filename: String) -> Result<Self, Box<dyn Error>> {
-    let contents = fs::read_to_string(filename)
+    let contents = fs::read_to_string(shellexpand::full(filename.as_str()).unwrap().to_string())
       .expect("Aw man, there was an issue while opening the config file :(");
 
     let yaml_files = &YamlLoader::load_from_str(contents.as_str())?;

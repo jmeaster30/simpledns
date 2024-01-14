@@ -22,11 +22,14 @@ impl SimpleDatabase {
     self.connection.execute("CREATE TABLE IF NOT EXISTS remote_lookup_servers(ip TEXT PRIMARY KEY)", [])?;
     self.connection.execute("INSERT INTO remote_lookup_servers VALUES (\"8.8.8.8\")", [])?;
     self.connection.execute("INSERT INTO remote_lookup_servers VALUES (\"75.75.75.75\")", [])?;
-    self.connection.execute("CREATE TABLE IF NOT EXISTS records(domain TEXT, query_type NUMERIC, class NUMERIC, ttl NUMERIC, len NUMERIC, hostipbody TEXT, priority NUMERIC)", [])?;
+    self.connection.execute("CREATE TABLE IF NOT EXISTS records(domain TEXT, query_type INTEGER, class INTEGER, ttl INTEGER, len INTEGER, hostipbody TEXT, priority INTEGER, cached INTEGER, insert_time INTEGER)", [])?;
+    self.connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS record_unique_idx ON records(domain, query_type, hostipbody, priority, cached)", [])?;
     Ok(())
   }
 
   pub fn get_records(&self, domain: String, _query_type: DnsQueryType) -> Result<Vec<DnsRecord>> {
+    self.connection.execute("DELETE FROM records WHERE records.cached AND records.ttl < unixepoch() - records.insert_time;", [])?;
+
     // TODO what does query type do?
     let mut stmt = self.connection.prepare("SELECT domain, query_type, class, ttl, len, hostipbody, priority FROM records WHERE domain = ?1;")?;
     let query_results = stmt.query_map(&[&domain], |row| {
@@ -69,7 +72,7 @@ impl SimpleDatabase {
     Ok(results)
   }
 
-  pub fn insert_record(&self, record: DnsRecord) -> Result<()> {
+  pub fn insert_record(&self, record: DnsRecord, cached_record: bool) -> Result<()> {
     let preamble = record.get_preamble();
     let domain = preamble.domain;
     let query_type = preamble.query_type.to_num().to_string();
@@ -96,9 +99,10 @@ impl SimpleDatabase {
       DnsRecord::AAAA(record) => record.ip.to_string(),
       DnsRecord::DROP(_) => "".to_string(),
     };
+
     self.connection.execute(
-      "INSERT INTO records VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);",
-      (&domain, &query_type, &class, &ttl, &len, &hostipbody, &priority),
+      "INSERT OR REPLACE INTO records VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch());",
+      (&domain, &query_type, &class, &ttl, &len, &hostipbody, &priority, &cached_record),
     )?;
     Ok(())
   }

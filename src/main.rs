@@ -51,7 +51,7 @@ enum Commands {
     query_type: Option<String>,
     #[arg(long, value_parser, default_value = "1")]
     class: u16,
-    #[arg(long, value_parser, default_value = "360")]
+    #[arg(long, value_parser, default_value = "300")]
     ttl: u32,
     #[arg(long, value_parser, required_if_eq_any([
       ("query_type", "NS"),
@@ -157,7 +157,7 @@ fn main() -> Result<(), Box<dyn Error>> {
       };
 
       let database = SimpleDatabase::new(settings.database_file);
-      database.insert_record(record.clone())?;
+      database.insert_record(record.clone(), false)?;
       log_info!("Successfully added record: {:?}", record);
     }
     Commands::Add { config, interactive, domain, query_type, class, ttl, host, ip, priority } if !interactive => {
@@ -179,7 +179,7 @@ fn main() -> Result<(), Box<dyn Error>> {
       };
 
       let database = SimpleDatabase::new(settings.database_file);
-      database.insert_record(record.clone())?;
+      database.insert_record(record.clone(), false)?;
       log_info!("Successfully added record: {:?}", record);
     }
     _ => log_error!("Unknown command :( \n{:#?}", args),
