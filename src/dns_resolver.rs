@@ -11,10 +11,10 @@ pub struct DnsResolver {
 }
 
 impl DnsResolver {
-  pub fn new(settings: DnsSettings) -> DnsResolver {
+  pub fn new(database_file: String, remote_lookup_port: u16) -> DnsResolver {
     Self {
-      database: SimpleDatabase::new(settings.database_file),
-      remote_lookup_port: settings.remote_lookup_port,
+      database: SimpleDatabase::new(database_file),
+      remote_lookup_port,
     }
   }
 

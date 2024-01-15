@@ -1,7 +1,7 @@
 pub mod dns_packet;
 mod dns_resolver;
 pub mod dns_server;
-mod logger;
+mod macros;
 mod settings;
 mod simple_database;
 
@@ -18,8 +18,7 @@ use std::str::FromStr;
 use clap::{Parser, Subcommand};
 use crate::dns_packet::{DnsQueryType, DnsRecord, DnsRecordA, DnsRecordAAAA, DnsRecordCNAME, DnsRecordDROP, DnsRecordMX, DnsRecordNS, DnsRecordPreamble};
 
-use crate::dns_resolver::DnsResolver;
-use crate::dns_server::DnsServer;
+use crate::dns_server::{DnsServer, DnsUdpServer};
 use crate::settings::DnsSettings;
 use crate::simple_database::SimpleDatabase;
 
@@ -94,15 +93,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     Commands::Start { config } => {
       log_info!("Loading from config file '{}'...", config);
       let settings = DnsSettings::load(config.clone())?;
-      log_info!("Listening Port: {}", settings.listening_port);
-      log_info!("Backup Port: {}", settings.remote_lookup_port);
-      log_info!("Database File Path: {:#?}", settings.database_file);
+      log_info!("Settings: {:?}", settings);
 
-      let mut server = DnsServer::new(settings.clone(), DnsResolver::new(settings));
+      let server_udp = DnsUdpServer::new(settings.clone());
 
       let _handle = std::thread::spawn(move || {
-        log_info!("Successfully started server :)");
-        let _ = server.run();
+        if settings.use_udp {
+          log_info!("Successfully started UDP server :)");
+          let _ = server_udp.run();
+        } else {
+          log_info!("UDP server was not started due to configuration settings.");
+        }
       });
 
       loop {}

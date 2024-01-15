@@ -10,6 +10,9 @@ pub struct DnsSettings {
   pub listening_port: u16,
   pub remote_lookup_port: u16,
   pub database_file: String,
+  pub thread_count: u32,
+  pub use_udp: bool,
+  pub use_tcp: bool,
 }
 
 impl DnsSettings {
@@ -29,6 +32,19 @@ impl DnsSettings {
           Some(x) => x as u16,
           None => 42069,
         };
+        let thread_count = match config_settings["thread-count"].as_i64() {
+          Some(x) => x as u32,
+          None => 1, // TODO is this the best default?
+        };
+        let use_udp = match config_settings["use-udp"].as_bool() {
+          Some(x) => x,
+          None => true,
+        };
+        let use_tcp = match config_settings["use-tcp"].as_bool() {
+          Some(x) => x,
+          None => true,
+        };
+
         let database_file = shellexpand::full(
             config_settings["database-file"]
               .as_str()
@@ -41,6 +57,9 @@ impl DnsSettings {
           listening_port,
           remote_lookup_port,
           database_file,
+          thread_count,
+          use_udp,
+          use_tcp,
         })
       }
       None => Err(Box::new(std::io::Error::new(
