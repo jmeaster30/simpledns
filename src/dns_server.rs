@@ -65,8 +65,6 @@ impl DnsServer for DnsUdpServer {
               }
             };
 
-            sleep(Duration::from_millis(1000));
-
             // process request
             let resolver = DnsResolver::new(settings.database_file.clone(), settings.remote_lookup_port);
             let response_packet = resolver.answer_question(request_packet);
