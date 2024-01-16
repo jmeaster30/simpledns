@@ -18,7 +18,7 @@ use std::str::FromStr;
 use clap::{Parser, Subcommand};
 use crate::dns_packet::{DnsQueryType, DnsRecord, DnsRecordA, DnsRecordAAAA, DnsRecordCNAME, DnsRecordDROP, DnsRecordMX, DnsRecordNS, DnsRecordPreamble};
 
-use crate::dns_server::{DnsServer, DnsUdpServer};
+use crate::dns_server::{DnsServer, DnsTcpServer, DnsUdpServer};
 use crate::settings::DnsSettings;
 use crate::simple_database::SimpleDatabase;
 
@@ -96,13 +96,21 @@ fn main() -> Result<(), Box<dyn Error>> {
       log_info!("Settings: {:?}", settings);
 
       let server_udp = DnsUdpServer::new(settings.clone());
+      let server_tcp = DnsTcpServer::new(settings.clone());
 
       let _handle = std::thread::spawn(move || {
         if settings.use_udp {
-          log_info!("Successfully started UDP server :)");
           let _ = server_udp.run();
+          log_info!("Successfully started UDP server :)");
         } else {
           log_info!("UDP server was not started due to configuration settings.");
+        }
+
+        if settings.use_tcp {
+          let _ = server_tcp.run();
+          log_info!("Successfully started TCP server :)");
+        } else {
+          log_info!("TCP server was not started due to configuration settings.");
         }
       });
 

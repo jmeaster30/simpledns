@@ -35,3 +35,29 @@ macro_rules! ignore_result_and_log_error {
         }
     };
 }
+
+#[macro_export]
+macro_rules! return_result_or_log_error_continue {
+    ($x:expr, $message:expr) => {
+        match $x {
+            Ok(a) => a,
+            Err(error) => {
+                log_error!("{}: {}", $message, error);
+                continue;
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! ignore_result_or_log_error_continue {
+    ($x:expr, $message:expr) => {
+        match $x {
+            Ok(_) => {},
+            Err(error) => {
+                log_error!("{}: {}", $message, error);
+                continue;
+            }
+        }
+    };
+}

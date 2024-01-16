@@ -1,15 +1,16 @@
 extern crate rand;
 
-use std::io::Error;
-use std::net::{SocketAddr, UdpSocket};
+use std::io::{Error, Read, Write};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread::{Builder, sleep};
-use std::time::Duration;
+use std::sync::mpsc::{channel, Sender};
+use std::thread::Builder;
+use rand::random;
 
 use crate::dns_packet::*;
 use crate::dns_resolver::DnsResolver;
 use crate::settings::DnsSettings;
-use crate::{ignore_result_and_log_error, log_error, log_warn};
+use crate::{ignore_result_and_log_error, ignore_result_or_log_error_continue, log_error, log_warn, return_result_or_log_error_continue};
 
 pub trait DnsServer {
   fn run(self) -> Result<(), Error>;
@@ -34,7 +35,6 @@ impl DnsUdpServer {
 impl DnsServer for DnsUdpServer {
   fn run(self) -> Result<(), Error> {
     let socket = UdpSocket::bind(("0.0.0.0", self.settings.listening_port))?;
-
 
     for thread_num in 0..self.settings.thread_count {
       let request_queue = self.request_queue.clone();
@@ -113,8 +113,60 @@ impl DnsServer for DnsUdpServer {
 }
 
 pub struct DnsTcpServer {
-  listening_port: u16,
-  thread_count: u32,
-  use_tcp: bool,
-  resolver: DnsResolver,
+  settings: Arc<DnsSettings>,
+  request_handlers: Vec<Sender<TcpStream>>,
+}
+
+impl DnsTcpServer {
+  pub fn new(settings: DnsSettings) -> DnsTcpServer {
+    Self {
+      settings: Arc::new(settings),
+      request_handlers: Vec::new(),
+    }
+  }
+}
+
+impl DnsServer for DnsTcpServer {
+  fn run(mut self) -> Result<(), Error> {
+    let socket = TcpListener::bind(("0.0.0.0", self.settings.listening_port))?;
+
+    for thread_id in 0..self.settings.thread_count {
+      let (sender, receiver) = channel();
+
+      self.request_handlers.push(sender);
+
+      let settings = self.settings.clone();
+
+      let _ = Builder::new()
+        .name(format!("DnsTcpServer-request-handler-{}", thread_id))
+        .spawn(move || loop {
+          let mut stream = return_result_or_log_error_continue!(receiver.recv(), "Failed to receive the tcp stream");
+
+
+          let mut packet_length_buffer = [0; 2];
+          ignore_result_or_log_error_continue!(stream.read(&mut packet_length_buffer), "Failed to read the packet length from the stream");
+
+          let mut packet_buffer = Vec::new();
+          ignore_result_or_log_error_continue!(stream.read_to_end(&mut packet_buffer), "Failed to read the packet into a buffer");
+
+          let request = return_result_or_log_error_continue!(DnsPacket::from_bytes(packet_buffer.as_slice()), "Failed to parse packet from buffer");
+          let resolver = DnsResolver::new(settings.database_file.clone(), settings.remote_lookup_port);
+
+          let result = resolver.answer_question(request);
+
+          ignore_result_or_log_error_continue!(stream.write(result.to_bytes().as_slice()), "Failed writing result back to buffer");
+          ignore_result_or_log_error_continue!(stream.shutdown(Shutdown::Both), "Failed shutting down tcp connection");
+        })?;
+    }
+
+    let _ = Builder::new().name("DnsTcpServer-incoming-requests".to_string())
+      .spawn(move || for incoming in socket.incoming() {
+        match incoming {
+          Ok(stream) => ignore_result_and_log_error!(self.request_handlers[random::<usize>() % self.settings.thread_count as usize].send(stream)),
+          Err(error) => log_error!("Failed to accept incoming TCP connection: {}", error),
+        }
+      })?;
+
+    Ok(())
+  }
 }
