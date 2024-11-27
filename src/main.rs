@@ -32,15 +32,15 @@ struct Args {
 #[derive(Debug, Subcommand)]
 enum Commands {
   Start {
-    #[arg(short, long, value_parser, default_value = "./dns.config.yaml")]
+    #[arg(short, long, value_parser, default_value = "~/.config/simpledns/dns.config.yaml")]
     config: String,
   },
   Init {
-    #[arg(short, long, value_parser, default_value = "./dns.config.yaml")]
+    #[arg(short, long, value_parser, default_value = "~/.config/simpledns/dns.config.yaml")]
     config: String,
   },
   Add {
-    #[arg(short, long, value_parser, default_value = "./dns.config.yaml")]
+    #[arg(short, long, value_parser, default_value = "~/.config/simpledns/dns.config.yaml")]
     config: String,
     #[arg(short, long, action)]
     interactive: bool,
