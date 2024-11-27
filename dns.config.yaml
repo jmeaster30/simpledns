@@ -1,0 +1,6 @@
+listening-port: 53
+remote-lookup-port: 42069
+thread-count: 1
+use-udp: true
+use-tcp: false
+database-file: "~/.config/simpledns/simpledns.sqlite.db"

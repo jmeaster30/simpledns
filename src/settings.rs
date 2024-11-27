@@ -42,7 +42,7 @@ impl DnsSettings {
         };
         let use_tcp = match config_settings["use-tcp"].as_bool() {
           Some(x) => x,
-          None => true,
+          None => false, // TODO should be set true when this functionality is working properly
         };
 
         let database_file = shellexpand::full(
