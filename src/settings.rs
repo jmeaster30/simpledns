@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fs;
 use std::io::ErrorKind;
 use yaml_rust::YamlLoader;
+use std::path::Path;
 
 extern crate shellexpand;
 
@@ -24,13 +25,13 @@ impl DnsSettings {
     let mut contents = String::new();
     let mut config_file = String::new();
     for filename in filenames {    
-      contents = match fs::read_to_string(shellexpand::full(filename).unwrap().to_string()) {
-        Ok(data) => { matched = true; config_file = String::from(filename); data},
-        Err(_) => { continue },
-      };
-      break
-    } 
-    if !matched { panic!("Aw man, there was an issue while opening the config file :(") }
+      if !Path::new(filename).exists() { continue }
+      let error_str = "Aw man, there was an issue while opening the config file '{".to_owned() + filename + "}' :(";
+      contents = fs::read_to_string(shellexpand::full(filename).unwrap().to_string())
+                     .expect(&error_str);
+      config_file = String::from(filename);
+      break;
+    }
 
     //let contents = fs::read_to_string(shellexpand::full(filename.as_str()).unwrap().to_string())
     //  .expect("Aw man, there was an issue while opening the config file :(");
