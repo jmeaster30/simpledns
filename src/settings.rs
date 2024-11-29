@@ -4,13 +4,14 @@ use std::io::ErrorKind;
 use yaml_rust::YamlLoader;
 use std::path::Path;
 
+use crate::log_info;
+
 extern crate shellexpand;
 
 #[derive(Clone, Debug)]
 pub struct DnsSettings {
   pub listening_port: u16,
   pub remote_lookup_port: u16,
-  pub config_file: String,
   pub database_file: String,
   pub thread_count: u32,
   pub use_udp: bool,
@@ -21,15 +22,13 @@ impl DnsSettings {
   pub fn load(filename: String) -> Result<Self, Box<dyn Error>> {
 
     let filenames= [filename.as_str(), "./dns.config.yaml", "~/.config/simpledns/dns.config.yaml", "/etc/simpledns/dns.config.yaml"];
-    let mut matched = false;
     let mut contents = String::new();
-    let mut config_file = String::new();
     for filename in filenames {    
       if !Path::new(filename).exists() { continue }
       let error_str = "Aw man, there was an issue while opening the config file '{".to_owned() + filename + "}' :(";
       contents = fs::read_to_string(shellexpand::full(filename).unwrap().to_string())
                      .expect(&error_str);
-      config_file = String::from(filename);
+      log_info!("Loaded from config file '{}'...", filename);
       break;
     }
 
@@ -72,7 +71,6 @@ impl DnsSettings {
         Ok(DnsSettings {
           listening_port,
           remote_lookup_port,
-          config_file,
           database_file,
           thread_count,
           use_udp,
