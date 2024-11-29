@@ -74,8 +74,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
   match args.command {
     Commands::Init { config } => {
-      log_info!("Loading from config file '{}'...", config);
       let settings = DnsSettings::load(config.clone())?;
+      log_info!("Loaded from config file '{}'...", settings.config_file);
       log_info!("Database File Path: {:#?}", settings.database_file);
 
       let path = Path::new(settings.database_file.as_str());
@@ -91,8 +91,8 @@ fn main() -> Result<(), Box<dyn Error>> {
       }
     }
     Commands::Start { config } => {
-      log_info!("Loading from config file '{}'...", config);
       let settings = DnsSettings::load(config.clone())?;
+      log_info!("Loaded from config file '{}'...", settings.config_file);
       log_info!("Settings: {:?}", settings);
 
       let server_udp = DnsUdpServer::new(settings.clone());
@@ -120,8 +120,8 @@ fn main() -> Result<(), Box<dyn Error>> {
       _handle.join().unwrap();
     }
     Commands::Add { config, interactive, .. } if interactive => {
-      log_info!("Loading from config file '{}'...", config);
       let settings = DnsSettings::load(config.clone())?;
+      log_info!("Loaded from config file '{}'...", settings.config_file);
       log_info!("Database File Path: {:#?}", settings.database_file);
 
       let domain = get_input("Domain: ", None, "A domain is required.", |x| !x.is_empty()); // TODO should check for valid domain
@@ -170,8 +170,8 @@ fn main() -> Result<(), Box<dyn Error>> {
       log_info!("Successfully added record: {:?}", record);
     }
     Commands::Add { config, interactive, domain, query_type, class, ttl, host, ip, priority } if !interactive => {
-      log_info!("Loading from config file '{}'...", config);
       let settings = DnsSettings::load(config.clone())?;
+      log_info!("Loaded from config file '{}'...", settings.config_file);
       log_info!("Database File Path: {:#?}", settings.database_file);
 
       let domain = domain.unwrap();

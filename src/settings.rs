@@ -9,6 +9,7 @@ extern crate shellexpand;
 pub struct DnsSettings {
   pub listening_port: u16,
   pub remote_lookup_port: u16,
+  pub config_file: String,
   pub database_file: String,
   pub thread_count: u32,
   pub use_udp: bool,
@@ -21,9 +22,10 @@ impl DnsSettings {
     let filenames= [filename.as_str(), "./dns.config.yaml", "~/.config/simpledns/dns.config.yaml", "/etc/simpledns/dns.config.yaml"];
     let mut matched = false;
     let mut contents = String::new();
+    let mut config_file = String::new();
     for filename in filenames {    
       contents = match fs::read_to_string(shellexpand::full(filename).unwrap().to_string()) {
-        Ok(data) => { matched = true; data},
+        Ok(data) => { matched = true; config_file = String::from(filename); data},
         Err(_) => { continue },
       };
       break
@@ -69,6 +71,7 @@ impl DnsSettings {
         Ok(DnsSettings {
           listening_port,
           remote_lookup_port,
+          config_file,
           database_file,
           thread_count,
           use_udp,
