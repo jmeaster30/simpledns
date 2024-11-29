@@ -32,9 +32,6 @@ impl DnsSettings {
       break;
     }
 
-    //let contents = fs::read_to_string(shellexpand::full(filename.as_str()).unwrap().to_string())
-    //  .expect("Aw man, there was an issue while opening the config file :(");
-
     let yaml_files = &YamlLoader::load_from_str(contents.as_str())?;
     let config_settings_option = &yaml_files.get(0);
     match config_settings_option {
