@@ -17,8 +17,21 @@ pub struct DnsSettings {
 
 impl DnsSettings {
   pub fn load(filename: String) -> Result<Self, Box<dyn Error>> {
-    let contents = fs::read_to_string(shellexpand::full(filename.as_str()).unwrap().to_string())
-      .expect("Aw man, there was an issue while opening the config file :(");
+
+    let filenames= [filename.as_str(), "./dns.config.yaml", "~/.config/simpledns/dns.config.yaml", "/etc/simpledns/dns.config.yaml"];
+    let mut matched = false;
+    let mut contents = String::new();
+    for filename in filenames {    
+      contents = match fs::read_to_string(shellexpand::full(filename).unwrap().to_string()) {
+        Ok(data) => { matched = true; data},
+        Err(_) => { continue },
+      };
+      break
+    } 
+    if !matched { panic!("Aw man, there was an issue while opening the config file :(") }
+
+    //let contents = fs::read_to_string(shellexpand::full(filename.as_str()).unwrap().to_string())
+    //  .expect("Aw man, there was an issue while opening the config file :(");
 
     let yaml_files = &YamlLoader::load_from_str(contents.as_str())?;
     let config_settings_option = &yaml_files.get(0);
