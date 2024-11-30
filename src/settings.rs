@@ -19,19 +19,13 @@ pub struct DnsSettings {
 }
 
 impl DnsSettings {
-  pub fn load(filename: String) -> Result<Self, Box<dyn Error>> {
 
-    let filenames= [filename.as_str(), "./dns.config.yaml", "~/.config/simpledns/dns.config.yaml", "/etc/simpledns/dns.config.yaml"];
-    let mut config_file = "";
-    for filename in filenames {    
-      if Path::new(filename).exists() { config_file = filename; break; }
-    }
-    if config_file == "" { panic!("No valid config file given"); }
-    
-    let error_str = "Aw man, there was an issue while opening the config file '{".to_owned() + config_file + "}' :(";
-    let contents = fs::read_to_string(shellexpand::full(config_file).unwrap().to_string())
+  pub fn load_from_file(filename: String) -> Result<Self, Box<dyn Error>> {
+
+    let error_str = "Aw man, there was an issue while opening the config file '{".to_owned() + filename.as_str() + "}' :(";
+    let contents = fs::read_to_string(shellexpand::full(filename.as_str()).unwrap().to_string())
                    .expect(&error_str);
-    log_info!("Loaded from config file '{}'...", config_file);
+    log_info!("Loaded from config file '{}'...", filename.as_str());
 
     let yaml_files = &YamlLoader::load_from_str(contents.as_str())?;
     let config_settings_option = &yaml_files.get(0);
@@ -80,5 +74,15 @@ impl DnsSettings {
         "Parsing the config file lead to no yaml documents :(",
       ))),
     }
+  }
+
+  pub fn load_default() -> Result<Self, Box<dyn Error>> {
+    let filenames = ["./dns.config.yaml", "~/.config/simpledns/dns.config.yaml", "/etc/simpledns/dns.config.yaml"];
+    let mut config_file = "";
+    for filename in filenames {    
+      if Path::new(filename).exists() { config_file = filename; break; }
+    }
+    if config_file == "" { panic!("No valid config file given"); }
+    Self::load_from_file(String::from(config_file))
   }
 }
