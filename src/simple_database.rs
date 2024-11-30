@@ -2,7 +2,7 @@ use crate::dns_packet::{
   DnsQueryType, DnsRecord, DnsRecordA, DnsRecordAAAA, DnsRecordCNAME, DnsRecordDROP, DnsRecordMX,
   DnsRecordNS, DnsRecordPreamble, DnsRecordUnknown,
 };
-use rusqlite::{Connection, Result};
+use rusqlite::{params, Connection, Params, Result, Statement};
 use std::net::Ipv4Addr;
 use std::str;
 use std::str::FromStr;
@@ -27,12 +27,8 @@ impl SimpleDatabase {
     Ok(())
   }
 
-  pub fn get_records(&self, domain: String, _query_type: DnsQueryType) -> Result<Vec<DnsRecord>> {
-    self.connection.execute("DELETE FROM records WHERE records.cached AND records.ttl < unixepoch() - records.insert_time;", [])?;
-
-    // TODO what does query type do?
-    let mut stmt = self.connection.prepare("SELECT domain, query_type, class, ttl, len, hostipbody, priority FROM records WHERE domain = ?1;")?;
-    let query_results = stmt.query_map(&[&domain], |row| {
+  fn run_dns_record_query<P: Params>(&self, mut statement: Statement<'_>, params: P) -> Result<Vec<DnsRecord>> {
+    let query_results = statement.query_map(params, |row| {
       let mut preamble = DnsRecordPreamble::new();
       preamble.domain = row.get(0)?;
       preamble.query_type = DnsQueryType::from_num(row.get(1)?);
@@ -70,6 +66,23 @@ impl SimpleDatabase {
       results.push(record?);
     }
     Ok(results)
+  }
+
+  fn clean_up_cache(&self) -> Result<()> {
+    self.connection.execute("DELETE FROM records WHERE records.cached AND records.ttl < unixepoch() - records.insert_time;", [])?;
+    Ok(())
+  }
+
+  pub fn get_all_records(&self) -> Result<Vec<DnsRecord>> {
+    self.clean_up_cache()?;
+    let stmt = self.connection.prepare("SELECT domain, query_type, class, ttl, len, hostipbody, priority FROM records;")?;
+    self.run_dns_record_query(stmt, params![])
+  }
+
+  pub fn get_records(&self, domain: String) -> Result<Vec<DnsRecord>> {
+    self.clean_up_cache()?;
+    let stmt = self.connection.prepare("SELECT domain, query_type, class, ttl, len, hostipbody, priority FROM records WHERE domain = ?1;")?;
+    self.run_dns_record_query(stmt, params![domain])
   }
 
   pub fn insert_record(&self, record: DnsRecord, cached_record: bool) -> Result<()> {
