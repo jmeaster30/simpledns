@@ -22,15 +22,16 @@ impl DnsSettings {
   pub fn load(filename: String) -> Result<Self, Box<dyn Error>> {
 
     let filenames= [filename.as_str(), "./dns.config.yaml", "~/.config/simpledns/dns.config.yaml", "/etc/simpledns/dns.config.yaml"];
-    let mut contents = String::new();
+    let mut config_file = "";
     for filename in filenames {    
-      if !Path::new(filename).exists() { continue }
-      let error_str = "Aw man, there was an issue while opening the config file '{".to_owned() + filename + "}' :(";
-      contents = fs::read_to_string(shellexpand::full(filename).unwrap().to_string())
-                     .expect(&error_str);
-      log_info!("Loaded from config file '{}'...", filename);
-      break;
+      if Path::new(filename).exists() { config_file = filename; break; }
     }
+    if config_file == "" { panic!("No valid config file given"); }
+    
+    let error_str = "Aw man, there was an issue while opening the config file '{".to_owned() + config_file + "}' :(";
+    let contents = fs::read_to_string(shellexpand::full(config_file).unwrap().to_string())
+                   .expect(&error_str);
+    log_info!("Loaded from config file '{}'...", config_file);
 
     let yaml_files = &YamlLoader::load_from_str(contents.as_str())?;
     let config_settings_option = &yaml_files.get(0);
