@@ -1,4 +1,6 @@
-use ratatui::{buffer::Buffer, layout::Rect, text::{Line, Span, Text}};
+use std::time::Duration;
+
+use ratatui::{buffer::Buffer, layout::Rect, text::{Line, Text}, widgets::{Block, Paragraph, Widget}};
 use crate::{settings::DnsSettings, tui::ratatui::prelude::Stylize};
 
 use super::{event::{SimpleEvent, SimpleEventResult}, view::View};
@@ -18,12 +20,14 @@ impl RecordListView {
 }
 
 impl View for RecordListView {
-  fn draw(&self, area: Rect, buf: &mut Buffer) {
-    todo!()
+  fn draw(&self, block: Block, area: Rect, buf: &mut Buffer) { 
+    Paragraph::new("TODO draw the list of records here!!!!!")
+      .block(block)
+      .render(area, buf); 
   }
 
   fn handle_event(&mut self, event: SimpleEvent) -> SimpleEventResult {
-    todo!()
+    SimpleEventResult::Bubble
   }
 
   fn name(&self) -> Line {
@@ -40,5 +44,9 @@ impl View for RecordListView {
       "This is a test".into(),
       "of the help window".into()
     ])
+  }
+  
+  fn poll_rate(&self) -> Duration {
+    Duration::from_secs(1)
   }
 }
