@@ -5,6 +5,9 @@ mod macros;
 mod settings;
 mod simple_database;
 
+#[cfg(feature = "tui")]
+mod tui;
+
 extern crate clap;
 extern crate yaml_rust;
 
@@ -22,6 +25,9 @@ use crate::dns_server::{DnsServer, DnsTcpServer, DnsUdpServer};
 use crate::settings::DnsSettings;
 use crate::simple_database::SimpleDatabase;
 
+#[cfg(feature = "tui")]
+use crate::tui::base::tui_start;
+
 #[derive(Parser, Debug)]
 #[command(author, version, about = "A simple dns server :)", long_about = None)]
 struct Args {
@@ -36,6 +42,10 @@ enum Commands {
     config: Option<String>,
   },
   Init {
+    #[arg(short, long, value_parser)]
+    config: Option<String>,
+  },
+  Tui {
     #[arg(short, long, value_parser)]
     config: Option<String>,
   },
@@ -124,7 +134,20 @@ fn main() -> Result<(), Box<dyn Error>> {
       loop {}
 
       // TODO How to deal with this being dead code
+      // #[allow(unreachable_code)] doesn't work
       _handle.join().unwrap();
+    }
+    #[cfg(feature = "tui")]
+    Commands::Tui { config } => {
+      let settings = match config {
+        Some(filename) => DnsSettings::load_from_file(filename.clone()),
+        None                   => DnsSettings::load_default(),
+      }?;
+      tui_start(&settings)?;
+    }
+    #[cfg(not(feature = "tui"))]
+    Commands::Tui { config } => {
+      log_error!("simpledns was not built with the TUI feature :( please rebuild with `cargo build --features \"tui\"`...")
     }
     Commands::Add { config, interactive, .. } if interactive => {
       let settings = match config {
@@ -136,9 +159,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
       let domain = get_input("Domain: ", None, "A domain is required.", |x| !x.is_empty()); // TODO should check for valid domain
       let query_type = DnsQueryType::from_string(get_input("Record Type: ",
-                                 None,
-                                 "A record type is required [A, NS, CNAME, MX, AAAA, DROP]",
-                                 |x| ["A", "NS", "CNAME", "MX", "AAAA", "DROP"].contains(&x.to_uppercase().as_str())).as_str());
+                                None,
+                                "A record type is required [A, NS, CNAME, MX, AAAA, DROP]",
+                                |x| ["A", "NS", "CNAME", "MX", "AAAA", "DROP"].contains(&x.to_uppercase().as_str())).as_str());
       let class = get_input("Class [default 1]: ",
                             Some("1".to_string()),
                             "A valid u16 must be supplied.",

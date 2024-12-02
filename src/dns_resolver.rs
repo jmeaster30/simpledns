@@ -1,8 +1,7 @@
 use crate::dns_packet::{DnsPacket, DnsQueryType, DnsQuestion, DnsRecord, DnsResponseCode};
-use crate::settings::DnsSettings;
 use crate::simple_database::SimpleDatabase;
 use crate::{ignore_result_and_log_error, log_debug, log_error, log_info};
-use std::io::Error;
+use std::error::Error;
 use std::net::UdpSocket;
 
 pub struct DnsResolver {
@@ -18,7 +17,7 @@ impl DnsResolver {
     }
   }
 
-  pub fn answer_question(&self, request: DnsPacket) -> DnsPacket {
+  pub fn answer_question(&self, request: DnsPacket) -> Result<DnsPacket, Box<dyn Error>> {
     let mut packet = DnsPacket::new();
     packet.header.id = request.header.id;
     packet.header.recurse_desired = true;
@@ -31,7 +30,7 @@ impl DnsResolver {
 
       match self
         .database
-        .get_records(question.name.clone(), question.query_type)
+        .get_records(question.name.clone())
       {
         Ok(mut records) if !records.is_empty() => {
           packet.question_section.push(question.clone());
@@ -50,73 +49,10 @@ impl DnsResolver {
             log_debug!("Found records: {:?}", records);
           }
         }
-        Ok(_) => match self.remote_lookup(&question.name, question.query_type) {
-          Ok(result) => {
-            packet.question_section.push(question.clone());
-            packet.header.question_count += 1;
-            packet.header.response_code = result.header.response_code;
-
-            for ans in result.answer_section {
-              log_debug!("Answer: {:?}", ans);
-              packet.answer_section.push(ans.clone());
-              ignore_result_and_log_error!(self.database.insert_record(ans, true));
-              packet.header.answer_count += 1;
-            }
-
-            for auth in result.authority_section {
-              log_debug!("Authority: {:?}", auth);
-              packet.authority_section.push(auth.clone());
-              ignore_result_and_log_error!(self.database.insert_record(auth, true));
-              packet.header.authority_count += 1;
-            }
-
-            for add in result.additional_section {
-              log_debug!("Resource: {:?}", add);
-              packet.additional_section.push(add.clone());
-              ignore_result_and_log_error!(self.database.insert_record(add, true));
-              packet.header.additional_count += 1;
-            }
-          }
-          Err(error) => {
-            log_error!("AW CRAP :( {:#?}", error);
-            packet.header.response_code = DnsResponseCode::SERVFAIL;
-          }
-        },
+        Ok(_) => self.do_remote_lookup(question, &mut packet)?,
         Err(error) => {
-          log_error!("Database error :( | {}", error);
-          // TODO fix duplicate code :(
-          match self.remote_lookup(&question.name, question.query_type) {
-            Ok(result) => {
-              packet.question_section.push(question.clone());
-              packet.header.question_count += 1;
-              packet.header.response_code = result.header.response_code;
-
-              for ans in result.answer_section {
-                log_debug!("Answer: {:?}", ans);
-                packet.answer_section.push(ans.clone());
-                ignore_result_and_log_error!(self.database.insert_record(ans, true));
-                packet.header.answer_count += 1;
-              }
-
-              for auth in result.authority_section {
-                log_debug!("Authority: {:?}", auth);
-                packet.authority_section.push(auth.clone());
-                ignore_result_and_log_error!(self.database.insert_record(auth, true));
-                packet.header.authority_count += 1;
-              }
-
-              for add in result.additional_section {
-                log_debug!("Resource: {:?}", add);
-                packet.additional_section.push(add.clone());
-                ignore_result_and_log_error!(self.database.insert_record(add, true));
-                packet.header.additional_count += 1;
-              }
-            }
-            Err(error) => {
-              log_error!("AW CRAP :( {}", error);
-              packet.header.response_code = DnsResponseCode::SERVFAIL;
-            }
-          }
+          log_error!("Database error :( {}", error);
+          self.do_remote_lookup(question, &mut packet)?;
         }
       }
     } else {
@@ -124,25 +60,57 @@ impl DnsResolver {
       packet.header.response_code = DnsResponseCode::FORMERR;
     }
 
-    packet
+    Ok(packet)
   }
 
-  fn remote_lookup(&self, query_name: &str, query_type: DnsQueryType) -> Result<DnsPacket, Error> {
+  fn do_remote_lookup(&self, question: &DnsQuestion, packet: &mut DnsPacket) -> Result<(), Box<dyn Error>> {
     let server = (self.database.get_random_remote_lookup_server().unwrap(), 53);
 
     let socket = UdpSocket::bind(("0.0.0.0", self.remote_lookup_port))?;
 
-    let mut packet = DnsPacket::new();
-    packet.header.recurse_desired = true;
-    packet.add_question(DnsQuestion::new(query_name.to_string(), query_type));
-    let packet_bytes = packet.to_bytes();
+    let mut remote_packet = DnsPacket::new();
+    remote_packet.header.recurse_desired = true;
+    remote_packet.add_question(DnsQuestion::new(question.name.clone(), question.query_type));
+    let remote_packet_bytes = packet.to_bytes();
 
-    socket.send_to(&packet_bytes, server)?;
+    socket.send_to(&remote_packet_bytes, server)?;
 
     let mut res: [u8; 512] = [0; 512];
     socket.recv_from(&mut res)?;
 
-    DnsPacket::from_bytes(&res)
+    match DnsPacket::from_bytes(&res) {
+      Ok(result) => {
+        packet.question_section.push(question.clone());
+        packet.header.question_count += 1;
+        packet.header.response_code = result.header.response_code;
+
+        for ans in result.answer_section {
+          log_debug!("Answer: {:?}", ans);
+          packet.answer_section.push(ans.clone());
+          ignore_result_and_log_error!(self.database.insert_record(ans, true));
+          packet.header.answer_count += 1;
+        }
+
+        for auth in result.authority_section {
+          log_debug!("Authority: {:?}", auth);
+          packet.authority_section.push(auth.clone());
+          ignore_result_and_log_error!(self.database.insert_record(auth, true));
+          packet.header.authority_count += 1;
+        }
+
+        for add in result.additional_section {
+          log_debug!("Resource: {:?}", add);
+          packet.additional_section.push(add.clone());
+          ignore_result_and_log_error!(self.database.insert_record(add, true));
+          packet.header.additional_count += 1;
+        }
+      }
+      Err(error) => {
+        log_error!("AW CRAP :( {:#?}", error);
+        packet.header.response_code = DnsResponseCode::SERVFAIL;
+      }
+    }
+    Ok(())
   }
 
   /* TODO
