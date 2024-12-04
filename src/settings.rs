@@ -2,9 +2,8 @@ use std::error::Error;
 use std::fs;
 use std::io::ErrorKind;
 use yaml_rust::YamlLoader;
-use std::path::Path;
 
-use crate::log_info;
+use crate::log_debug;
 
 extern crate shellexpand;
 
@@ -25,7 +24,7 @@ impl DnsSettings {
     let error_str = "Aw man, there was an issue while opening the config file '{".to_owned() + filename.as_str() + "}' :(";
     let contents = fs::read_to_string(shellexpand::full(filename.as_str()).unwrap().to_string())
                   .expect(&error_str);
-    log_info!("Loaded from config file '{}'...", filename.as_str());
+    log_debug!("Loaded from config file '{}'...", filename.as_str());
 
     let yaml_files = &YamlLoader::load_from_str(contents.as_str())?;
     let config_settings_option = &yaml_files.get(0);

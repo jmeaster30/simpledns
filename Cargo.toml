@@ -17,4 +17,9 @@ shellexpand = "3.1.0"
 ratatui = { version = "0.29.0", optional = true }
 
 [features]
+default = ["log_info", "log_warn", "log_error"]
+log_info = []
+log_debug = []
+log_warn = []
+log_error = []
 tui = ["dep:ratatui"]
