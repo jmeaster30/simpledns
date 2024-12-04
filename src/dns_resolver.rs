@@ -85,21 +85,21 @@ impl DnsResolver {
         for ans in result.answer_section {
           log_debug!("Answer: {:?}", ans);
           packet.answer_section.push(ans.clone());
-          ignore_result_and_log_error!(self.database.insert_record(ans, true));
+          ignore_result_and_log_error!(self.database.insert_cache_record(ans));
           packet.header.answer_count += 1;
         }
 
         for auth in result.authority_section {
           log_debug!("Authority: {:?}", auth);
           packet.authority_section.push(auth.clone());
-          ignore_result_and_log_error!(self.database.insert_record(auth, true));
+          ignore_result_and_log_error!(self.database.insert_cache_record(auth));
           packet.header.authority_count += 1;
         }
 
         for add in result.additional_section {
           log_debug!("Resource: {:?}", add);
           packet.additional_section.push(add.clone());
-          ignore_result_and_log_error!(self.database.insert_record(add, true));
+          ignore_result_and_log_error!(self.database.insert_cache_record(add));
           packet.header.additional_count += 1;
         }
       }

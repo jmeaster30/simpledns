@@ -12,7 +12,7 @@ use crate::{dns_packet::{DnsQueryType, DnsRecord, DnsRecordA, DnsRecordAAAA, Dns
 pub fn add_record(args: RecordArgs, settings: DnsSettings) -> Result<(), Box<dyn Error>> {
   let domain = args.domain.unwrap();
   let query_type = args.query_type.unwrap().into();
-  let preamble = DnsRecordPreamble::build(domain, query_type, args.class, args.ttl);
+  let preamble = DnsRecordPreamble::build(domain.clone(), query_type, args.class, args.ttl);
   let record = match query_type {
     DnsQueryType::Unknown(_) => panic!("Impossible state"),
     DnsQueryType::A => DnsRecord::A(DnsRecordA::new(preamble, Ipv4Addr::from_str(args.ip.unwrap().as_str()).expect("Couldn't parse ipv4 address"))),
@@ -23,8 +23,9 @@ pub fn add_record(args: RecordArgs, settings: DnsSettings) -> Result<(), Box<dyn
     DnsQueryType::DROP => DnsRecord::DROP(DnsRecordDROP::new(preamble)),
   };
   let database = SimpleDatabase::new(settings.database_file);
-  database.insert_record(record.clone(), false)?;
-  log_info!("Successfully added record: {:?}", record);
+  database.insert_record(record.clone())?;
+  log_debug!("Successfully added record: {:?}", record);
+  log_info!("Successfully added record [{:?}] {}", query_type, domain);
   Ok(())
 }
 
@@ -69,7 +70,7 @@ pub fn add_record_interactive(settings: DnsSettings) -> Result<(), Box<dyn Error
     DnsQueryType::DROP => DnsRecord::DROP(DnsRecordDROP::new(preamble))
   };
   let database = SimpleDatabase::new(settings.database_file);
-  database.insert_record(record.clone(), false)?;
+  database.insert_record(record.clone())?;
   log_info!("Successfully added record: {:?}", record);
   Ok(())
 }
