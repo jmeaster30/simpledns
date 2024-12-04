@@ -79,6 +79,12 @@ impl SimpleDatabase {
     self.run_dns_record_query(stmt, params![])
   }
 
+  /* TODO pub fn get_records_where<P: Params>(&self, where_filter: String, params: P) -> Result<Vec<DnsRecord>> {
+    self.clean_up_cache()?;
+    let stmt = self.connection.prepare(format!("SELECT domain, query_type, class, ttl, len, hostipbody, priority FROM records WHERE {};", where_filter).as_str())?;
+    self.run_dns_record_query(stmt, params)
+  }*/
+
   pub fn get_records(&self, domain: String) -> Result<Vec<DnsRecord>> {
     self.clean_up_cache()?;
     let stmt = self.connection.prepare("SELECT domain, query_type, class, ttl, len, hostipbody, priority FROM records WHERE domain = ?1;")?;
