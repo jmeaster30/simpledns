@@ -13,7 +13,7 @@ use ratatui::widgets::{Block, List, ListDirection, ListState, Paragraph, Statefu
 use ratatui::{DefaultTerminal, Frame};
 
 use crate::settings::DnsSettings;
-use crate::log_info;
+use crate::log_debug;
 use crate::simple_database::SimpleDatabase;
 
 use super::event::{SimpleEvent, SimpleEventResult};
@@ -21,7 +21,7 @@ use super::record_list_view::RecordListView;
 use super::view::View;
 
 pub fn tui_start(settings: &DnsSettings) -> Result<()> {
-  log_info!("Starting TUI....");
+  log_debug!("Starting TUI....");
   let mut terminal = ratatui::init();
   terminal.clear().expect("Couldn't clear terminal :(");
   let mut state = AppState::new();
@@ -84,7 +84,7 @@ impl App {
         match current_view.handle_event(simple_event.clone()) {
           SimpleEventResult::Consume => {}
           SimpleEventResult::Bubble => match simple_event {
-            SimpleEvent::Key(key) if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') => {
+            SimpleEvent::Key(key) if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc => {
               self.exit = true;
             }
             _ => {}
