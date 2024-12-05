@@ -22,8 +22,10 @@ impl SimpleDatabase {
     self.connection.execute("CREATE TABLE IF NOT EXISTS remote_lookup_servers(ip TEXT PRIMARY KEY)", [])?;
     self.connection.execute("INSERT INTO remote_lookup_servers VALUES (\"8.8.8.8\")", [])?;
     self.connection.execute("INSERT INTO remote_lookup_servers VALUES (\"75.75.75.75\")", [])?;
-    self.connection.execute("CREATE TABLE IF NOT EXISTS records(domain TEXT, query_type INTEGER, class INTEGER, ttl INTEGER, len INTEGER, hostipbody TEXT, priority INTEGER, cached INTEGER, insert_time INTEGER)", [])?;
-    self.connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS record_unique_idx ON records(domain, query_type, hostipbody, priority, cached)", [])?;
+    self.connection.execute("CREATE TABLE IF NOT EXISTS cached_records(domain TEXT, query_type INTEGER, class INTEGER, ttl INTEGER, len INTEGER, hostipbody TEXT, priority INTEGER, insert_time INTEGER)", [])?;
+    self.connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS cached_record_unique_idx ON cached_records(domain, query_type, hostipbody, priority)", [])?;
+    self.connection.execute("CREATE TABLE IF NOT EXISTS records(domain TEXT, query_type INTEGER, class INTEGER, ttl INTEGER, len INTEGER, hostipbody TEXT, priority INTEGER)", [])?;
+    self.connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS record_unique_idx ON records(domain, query_type, hostipbody, priority)", [])?;
     Ok(())
   }
 
@@ -69,7 +71,7 @@ impl SimpleDatabase {
   }
 
   fn clean_up_cache(&self) -> Result<()> {
-    self.connection.execute("DELETE FROM records WHERE records.cached AND records.ttl < unixepoch() - records.insert_time;", [])?;
+    self.connection.execute("DELETE FROM cached_records WHERE cached_records.ttl < unixepoch() - cached_records.insert_time;", [])?;
     Ok(())
   }
 
@@ -88,10 +90,14 @@ impl SimpleDatabase {
   pub fn get_records(&self, domain: String) -> Result<Vec<DnsRecord>> {
     self.clean_up_cache()?;
     let stmt = self.connection.prepare("SELECT domain, query_type, class, ttl, len, hostipbody, priority FROM records WHERE domain = ?1;")?;
-    self.run_dns_record_query(stmt, params![domain])
+    let mut records = self.run_dns_record_query(stmt, params![domain])?;
+    let stmt = self.connection.prepare("SELECT domain, query_type, class, ttl, len, hostipbody, priority FROM cached_records WHERE domain = ?1;")?;
+    let mut cached_records = self.run_dns_record_query(stmt, params![domain])?;
+    records.append(&mut cached_records);
+    Ok(records)
   }
 
-  pub fn insert_record(&self, record: DnsRecord, cached_record: bool) -> Result<()> {
+  pub fn insert_record(&self, record: DnsRecord) -> Result<()> {
     let preamble = record.get_preamble();
     let domain = preamble.domain;
     let query_type = preamble.query_type.to_num().to_string();
@@ -120,8 +126,43 @@ impl SimpleDatabase {
     };
 
     self.connection.execute(
-      "INSERT OR REPLACE INTO records VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch());",
-      (&domain, &query_type, &class, &ttl, &len, &hostipbody, &priority, &cached_record),
+      "INSERT OR REPLACE INTO records VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);",
+      (&domain, &query_type, &class, &ttl, &len, &hostipbody, &priority),
+    )?;
+    Ok(())
+  }
+
+  pub fn insert_cache_record(&self, record: DnsRecord) -> Result<()> {
+    let preamble = record.get_preamble();
+    let domain = preamble.domain;
+    let query_type = preamble.query_type.to_num().to_string();
+    let class = preamble.class.to_string();
+    let ttl = preamble.ttl.to_string();
+    let len = preamble.len.to_string();
+    let priority = match &record {
+      DnsRecord::Unknown(_) => 0,
+      DnsRecord::A(_) => 0,
+      DnsRecord::NS(_) => 0,
+      DnsRecord::CNAME(_) => 0,
+      DnsRecord::MX(mx) => mx.priority,
+      DnsRecord::AAAA(_) => 0,
+      DnsRecord::DROP(_) => 0,
+    }
+    .to_string();
+
+    let hostipbody = match &record {
+      DnsRecord::Unknown(record) => str::from_utf8(&*record.body).unwrap().to_string(),
+      DnsRecord::A(record) => record.ip.to_string(),
+      DnsRecord::NS(record) => record.host.clone(),
+      DnsRecord::CNAME(record) => record.host.clone(),
+      DnsRecord::MX(record) => record.host.clone(),
+      DnsRecord::AAAA(record) => record.ip.to_string(),
+      DnsRecord::DROP(_) => "".to_string(),
+    };
+
+    self.connection.execute(
+      "INSERT OR REPLACE INTO cached_records VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, unixepoch());",
+      (&domain, &query_type, &class, &ttl, &len, &hostipbody, &priority),
     )?;
     Ok(())
   }
