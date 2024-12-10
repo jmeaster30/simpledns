@@ -16,6 +16,7 @@ use crate::settings::DnsSettings;
 use crate::log_debug;
 use crate::simple_database::SimpleDatabase;
 
+use super::cache_list_view::CacheListView;
 use super::event::{SimpleEvent, SimpleEventResult};
 use super::record_list_view::RecordListView;
 use super::view::View;
@@ -50,7 +51,6 @@ impl AppState {
 }
 
 struct App {
-  //simple_connection: SimpleDatabase,
   views: Vec<Box<dyn View>>,
   exit: bool
 }
@@ -58,8 +58,10 @@ struct App {
 impl App {
   pub fn new(settings: &DnsSettings) -> Self {
     Self {
-      //simple_connection: SimpleDatabase::new(settings.database_file.clone()),
-      views: vec![RecordListView::new_boxed(settings)],
+      views: vec![
+        RecordListView::new_boxed(settings),
+        CacheListView::new_boxed(settings)
+      ],
       exit: false
     }
   }

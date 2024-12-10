@@ -31,10 +31,10 @@ pub fn add_record(args: RecordArgs, settings: DnsSettings) -> Result<(), Box<dyn
 
 pub fn add_record_interactive(settings: DnsSettings) -> Result<(), Box<dyn Error>> {
   let domain = get_input("Domain: ", None, "A domain is required.", |x| !x.is_empty());
-  let query_type = DnsQueryType::from_string(get_input("Record Type: ",
+  let query_type = get_input("Record Type: ",
                               None,
                               "A record type is required [A, NS, CNAME, MX, AAAA, DROP]",
-                              |x| ["A", "NS", "CNAME", "MX", "AAAA", "DROP"].contains(&x.to_uppercase().as_str())).as_str());
+                              |x| ["A", "NS", "CNAME", "MX", "AAAA", "DROP"].contains(&x.to_uppercase().as_str())).as_str().into();
   let class = get_input("Class [default 1]: ",
                           Some("1".to_string()),
                           "A valid u16 must be supplied.",

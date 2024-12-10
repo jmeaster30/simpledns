@@ -1,8 +1,7 @@
 use crate::dns_packet::{
-  DnsQueryType, DnsRecord, DnsRecordA, DnsRecordAAAA, DnsRecordCNAME, DnsRecordDROP, DnsRecordMX,
-  DnsRecordNS, DnsRecordPreamble, DnsRecordUnknown,
+  CachedDnsRecord, DnsQueryType, DnsRecord, DnsRecordA, DnsRecordAAAA, DnsRecordCNAME, DnsRecordDROP, DnsRecordMX, DnsRecordNS, DnsRecordPreamble, DnsRecordUnknown
 };
-use rusqlite::{params, Connection, Params, Result, Statement};
+use rusqlite::{params, Connection, Params, Result, Statement, Row};
 use std::net::Ipv4Addr;
 use std::str;
 use std::str::FromStr;
@@ -29,39 +28,41 @@ impl SimpleDatabase {
     Ok(())
   }
 
+  fn row_to_dns_record(&self, row: &Row<'_>) -> Result<DnsRecord> {
+    let mut preamble = DnsRecordPreamble::new();
+    preamble.domain = row.get(0)?;
+    preamble.query_type = DnsQueryType::from_num(row.get(1)?);
+    preamble.class = row.get(2)?;
+    preamble.ttl = row.get(3)?;
+    preamble.len = row.get(4)?;
+    Ok(match preamble.query_type {
+      DnsQueryType::Unknown(_) => DnsRecord::Unknown(DnsRecordUnknown::new(
+        preamble,
+        row.get::<usize, String>(5)?.into_bytes(),
+      )),
+      DnsQueryType::A => DnsRecord::A(DnsRecordA::new(
+        preamble,
+        Ipv4Addr::from_str(row.get::<usize, String>(5)?.as_str()).unwrap(),
+      )),
+      DnsQueryType::NS => DnsRecord::NS(DnsRecordNS::new(preamble, row.get::<usize, String>(5)?)),
+      DnsQueryType::CNAME => {
+        DnsRecord::CNAME(DnsRecordCNAME::new(preamble, row.get::<usize, String>(5)?))
+      }
+      DnsQueryType::MX => DnsRecord::MX(DnsRecordMX::new(
+        preamble,
+        row.get::<usize, u16>(5)?,
+        row.get::<usize, String>(5)?,
+      )),
+      DnsQueryType::AAAA => DnsRecord::AAAA(DnsRecordAAAA::new(
+        preamble,
+        Ipv4Addr::from_str(row.get::<usize, String>(5)?.as_str()).unwrap(),
+      )),
+      DnsQueryType::DROP => DnsRecord::DROP(DnsRecordDROP::new(preamble)),
+    })
+  }
+
   fn run_dns_record_query<P: Params>(&self, mut statement: Statement<'_>, params: P) -> Result<Vec<DnsRecord>> {
-    let query_results = statement.query_map(params, |row| {
-      let mut preamble = DnsRecordPreamble::new();
-      preamble.domain = row.get(0)?;
-      preamble.query_type = DnsQueryType::from_num(row.get(1)?);
-      preamble.class = row.get(2)?;
-      preamble.ttl = row.get(3)?;
-      preamble.len = row.get(4)?;
-      Ok(match preamble.query_type {
-        DnsQueryType::Unknown(_) => DnsRecord::Unknown(DnsRecordUnknown::new(
-          preamble,
-          row.get::<usize, String>(5)?.into_bytes(),
-        )),
-        DnsQueryType::A => DnsRecord::A(DnsRecordA::new(
-          preamble,
-          Ipv4Addr::from_str(row.get::<usize, String>(5)?.as_str()).unwrap(),
-        )),
-        DnsQueryType::NS => DnsRecord::NS(DnsRecordNS::new(preamble, row.get::<usize, String>(5)?)),
-        DnsQueryType::CNAME => {
-          DnsRecord::CNAME(DnsRecordCNAME::new(preamble, row.get::<usize, String>(5)?))
-        }
-        DnsQueryType::MX => DnsRecord::MX(DnsRecordMX::new(
-          preamble,
-          row.get::<usize, u16>(5)?,
-          row.get::<usize, String>(5)?,
-        )),
-        DnsQueryType::AAAA => DnsRecord::AAAA(DnsRecordAAAA::new(
-          preamble,
-          Ipv4Addr::from_str(row.get::<usize, String>(5)?.as_str()).unwrap(),
-        )),
-        DnsQueryType::DROP => DnsRecord::DROP(DnsRecordDROP::new(preamble)),
-      })
-    })?;
+    let query_results = statement.query_map(params, |row| self.row_to_dns_record(row))?;
 
     let mut results = Vec::new();
     for record in query_results {
@@ -95,6 +96,10 @@ impl SimpleDatabase {
     let mut cached_records = self.run_dns_record_query(stmt, params![domain])?;
     records.append(&mut cached_records);
     Ok(records)
+  }
+
+  pub fn get_all_cached_records(&self) -> Result<Vec<CachedDnsRecord>> {
+    Ok(Vec::new())
   }
 
   pub fn insert_record(&self, record: DnsRecord) -> Result<()> {

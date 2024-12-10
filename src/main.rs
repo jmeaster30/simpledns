@@ -5,6 +5,7 @@ pub mod dns_server;
 mod macros;
 mod settings;
 mod simple_database;
+mod utils;
 
 #[cfg(feature = "tui")]
 mod tui;

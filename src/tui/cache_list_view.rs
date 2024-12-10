@@ -8,11 +8,11 @@ use crate::{dns_packet::DnsRecord, settings::DnsSettings, simple_database::Simpl
 
 use super::{event::{SimpleEvent, SimpleEventResult}, view::View};
 
-pub struct RecordListView { 
+pub struct CacheListView { 
   simple_database: SimpleDatabase
 }
 
-impl RecordListView { 
+impl CacheListView { 
   pub fn new(settings: &DnsSettings) -> Self {
     Self {
       simple_database: SimpleDatabase::new(settings.database_file.clone())
@@ -24,9 +24,9 @@ impl RecordListView {
   }
 }
 
-impl View for RecordListView {
+impl View for CacheListView {
   fn draw(&self, block: Block, area: Rect, buf: &mut Buffer) {
-    match self.simple_database.get_all_records() {
+    match self.simple_database.get_all_cached_records() {
       Ok(records) => {
         Table::default()
           .rows(records.iter().map(|x| x.into()).collect::<Vec<Row<'_>>>())
@@ -37,7 +37,7 @@ impl View for RecordListView {
           .render(area, buf); 
       }
       Err(error) => {
-        Paragraph::new("ERROR GETTING LIST OF RECORDS FROM DB")
+        Paragraph::new("ERROR GETTING LIST OF CACHED RECORDS FROM DB")
           .centered()
           .red()
           .bold()
@@ -56,8 +56,8 @@ impl View for RecordListView {
   fn name(&self) -> Line {
     Line::from(vec![
       " ".into(),
-      "R".red().bold(),
-      "ecords".blue(),
+      "C".red().bold(),
+      "ached Records".blue(),
       " ".into()
     ])
   }

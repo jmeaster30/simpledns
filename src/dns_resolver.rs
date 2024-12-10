@@ -66,14 +66,7 @@ impl DnsResolver {
     log_debug!("Doing remote lookup {:?} {:?}", question, packet);
     let server = (self.database.get_random_remote_lookup_server().unwrap(), 53);
 
-<<<<<<< HEAD
     let socket = UdpSocket::bind(("0.0.0.0:0"))?;
-=======
-    let remote_lookup_address = (local_ip!(), self.remote_lookup_port);
-    log_debug!("Udp remote lookup {:?}", remote_lookup_address);
-    let socket = UdpSocket::bind(remote_lookup_address)?;
-    socket.set_read_timeout(Some(Duration::from_secs(5)))?;
->>>>>>> 83b1586 (Tested the remote lookup/cache fixed a couple butgs from the TUI changes)
 
     let mut remote_packet = DnsPacket::new();
     remote_packet.header.recurse_desired = true;
