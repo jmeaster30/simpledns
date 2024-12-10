@@ -99,6 +99,7 @@ impl SimpleDatabase {
   }
 
   pub fn get_all_cached_records(&self) -> Result<Vec<CachedDnsRecord>> {
+    //todo!();
     Ok(Vec::new())
   }
 

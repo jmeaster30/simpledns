@@ -78,7 +78,7 @@ impl App {
     frame.render_stateful_widget(self, frame.area(), state);
   }
 
-  pub fn handle_events(&mut self, state: &AppState) -> Result<()> {
+  pub fn handle_events(&mut self, state: &mut AppState) -> Result<()> {
     let mut current_view = &mut self.views[state.current_view()];
     match event::poll(current_view.poll_rate()) {
       Ok(true) => {
@@ -88,6 +88,13 @@ impl App {
           SimpleEventResult::Bubble => match simple_event {
             SimpleEvent::Key(key) if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc => {
               self.exit = true;
+            }
+            SimpleEvent::Key(key) if key.kind == KeyEventKind::Press => {
+              for (idx, view) in self.views.iter().enumerate() {
+                if key.code == view.open_view_control() {
+                  state.selected_view = ListState::default().with_selected(Some(idx))
+                }
+              }
             }
             _ => {}
           }

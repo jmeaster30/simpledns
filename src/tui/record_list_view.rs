@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use ratatui::{buffer::Buffer, layout::Rect, text::{Line, Text}, widgets::{Block, Chart, Dataset, Paragraph, Row, Table, Widget}};
+use ratatui::{buffer::Buffer, crossterm::event::KeyCode, layout::Rect, text::{Line, Text}, widgets::{Block, Chart, Dataset, Paragraph, Row, Table, Widget}};
 use ratatui::prelude::Stylize;
 use ratatui::prelude::Style;
 
@@ -51,6 +51,10 @@ impl View for RecordListView {
 
   fn handle_event(&mut self, event: SimpleEvent) -> SimpleEventResult {
     SimpleEventResult::Bubble
+  }
+
+  fn open_view_control(&self) -> KeyCode {
+    KeyCode::Char('r')
   }
 
   fn name(&self) -> Line {
