@@ -66,7 +66,7 @@ impl DnsServer for DnsUdpServer {
             };
 
             // process request
-            let resolver = DnsResolver::new(settings.database_file.clone(), settings.remote_lookup_port);
+            let resolver = DnsResolver::new(settings.database_file.clone());
   
             match resolver.answer_question(request_packet) {
               Ok(result) => {
@@ -155,7 +155,7 @@ impl DnsServer for DnsTcpServer {
           ignore_result_or_log_error_continue!(stream.read_to_end(&mut packet_buffer), "Failed to read the packet into a buffer");
 
           let request = return_result_or_log_error_continue!(DnsPacket::from_bytes(packet_buffer.as_slice()), "Failed to parse packet from buffer");
-          let resolver = DnsResolver::new(settings.database_file.clone(), settings.remote_lookup_port);
+          let resolver = DnsResolver::new(settings.database_file.clone());
 
           match resolver.answer_question(request) {
             Ok(result) => {
