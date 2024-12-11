@@ -29,7 +29,7 @@ impl View for RecordListView {
     match self.simple_database.get_all_records() {
       Ok(records) => {
         Table::default()
-          .rows(records.iter().map(|x| x.into()).collect::<Vec<Row<'_>>>())
+          .rows(records.iter().collect::<Vec<Row<'_>>>()) // TODO There has to be a better way
           .header(Row::new(vec!["Query Type", "Domain", "Host/IP", "Priority", "TTL", "Class"]).underlined().cyan())
           .row_highlight_style(Style::new().underlined())
           .highlight_symbol("->")

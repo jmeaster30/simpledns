@@ -1,8 +1,9 @@
 use std::io::{Error, ErrorKind};
 use std::net::Ipv4Addr;
 
-#[cfg(feature = "tui")]
-use ratatui::widgets::Row;
+use rusqlite::Row;
+
+use simple_macros::from;
 
 use crate::utils::{domain_name_to_bytes, get_name_from_packet, get_u16, get_u32, u16_to_bytes, u32_to_bytes};
 
@@ -432,38 +433,30 @@ impl DnsRecord {
   }
 }
 
-impl From<DnsRecord> for Vec<u8> {
-  fn from(value: DnsRecord) -> Self {
-    (&value).into()
+#[from]
+fn dns_record_to_vec_u8(value: DnsRecord) -> Vec<u8> {
+  match value {
+    DnsRecord::Unknown(x) => x.into(),
+    DnsRecord::A(x) => x.into(),
+    DnsRecord::NS(x) => x.into(),
+    DnsRecord::CNAME(x) => x.into(),
+    DnsRecord::MX(x) => x.into(),
+    DnsRecord::AAAA(x) => x.into(),
+    DnsRecord::DROP(_) => Vec::new(),
   }
 }
 
-impl From<&DnsRecord> for Vec<u8> {
-  fn from(value: &DnsRecord) -> Self {
-    match value {
-      DnsRecord::Unknown(x) => x.into(),
-      DnsRecord::A(x) => x.into(),
-      DnsRecord::NS(x) => x.into(),
-      DnsRecord::CNAME(x) => x.into(),
-      DnsRecord::MX(x) => x.into(),
-      DnsRecord::AAAA(x) => x.into(),
-      DnsRecord::DROP(_) => Vec::new(),
-    }
-  }
-}
-
+#[from]
 #[cfg(feature = "tui")]
-impl From<&DnsRecord> for ratatui::widgets::Row<'_> {
-  fn from(value: &DnsRecord) -> Self {
-    match value {
-      DnsRecord::Unknown(dns_record_unknown) => todo!(),
-      DnsRecord::A(dns_record_a) => dns_record_a.into(),
-      DnsRecord::NS(dns_record_ns) => dns_record_ns.into(),
-      DnsRecord::CNAME(dns_record_cname) => dns_record_cname.into(),
-      DnsRecord::MX(dns_record_mx) => dns_record_mx.into(),
-      DnsRecord::AAAA(dns_record_aaaa) => dns_record_aaaa.into(),
-      DnsRecord::DROP(dns_record_drop) => dns_record_drop.into()
-    }
+fn dns_record_to_ratatui_row(value: DnsRecord) -> ratatui::widgets::Row<'_> {
+  match value {
+    DnsRecord::Unknown(dns_record_unknown) => todo!(),
+    DnsRecord::A(dns_record_a) => dns_record_a.into(),
+    DnsRecord::NS(dns_record_ns) => dns_record_ns.into(),
+    DnsRecord::CNAME(dns_record_cname) => dns_record_cname.into(),
+    DnsRecord::MX(dns_record_mx) => dns_record_mx.into(),
+    DnsRecord::AAAA(dns_record_aaaa) => dns_record_aaaa.into(),
+    DnsRecord::DROP(dns_record_drop) => dns_record_drop.into()
   }
 }
 
@@ -504,6 +497,7 @@ impl DnsQueryType {
   }
 }
 
+// FIXME from macro doesn't work :(
 impl From<String> for DnsQueryType {
   fn from(value: String) -> Self {
     match value.to_uppercase().as_str() {
@@ -518,6 +512,7 @@ impl From<String> for DnsQueryType {
   }
 }
 
+// FIXME from macro doesn't work :(
 impl From<&str> for DnsQueryType {
   fn from(value: &str) -> Self {
     match value.to_uppercase().as_str() {
@@ -577,22 +572,15 @@ impl DnsRecordPreamble {
   }
 }
 
-impl From<DnsRecordPreamble> for Vec<u8> {
-  fn from(value: DnsRecordPreamble) -> Self {
-    (&value).into()
-  }
-}
-
-impl From<&DnsRecordPreamble> for Vec<u8> {
-  fn from(value: &DnsRecordPreamble) -> Vec<u8> {
-    let mut result = Vec::new();
-    result.append(&mut domain_name_to_bytes(value.domain.as_str()));
-    result.append(&mut u16_to_bytes(value.query_type.to_num()));
-    result.append(&mut u16_to_bytes(value.class));
-    result.append(&mut u32_to_bytes(value.ttl));
-    result.append(&mut u16_to_bytes(value.len));
-    result
-  }
+#[from]
+fn dns_record_preamble_to_vec_u8(value: DnsRecordPreamble) -> Vec<u8> {
+  let mut result = Vec::new();
+  result.append(&mut domain_name_to_bytes(value.domain.as_str()));
+  result.append(&mut u16_to_bytes(value.query_type.to_num()));
+  result.append(&mut u16_to_bytes(value.class));
+  result.append(&mut u32_to_bytes(value.ttl));
+  result.append(&mut u16_to_bytes(value.len));
+  result
 }
 
 #[derive(Clone, Debug)]
@@ -608,26 +596,18 @@ impl DnsRecordUnknown {
   }
 }
 
-impl From<DnsRecordUnknown> for Vec<u8> {
-  fn from(value: DnsRecordUnknown) -> Self {
-    (&value).into()
-  }
+#[from]
+fn dns_record_unknown_to_vec_u8(value: DnsRecordUnknown) -> Vec<u8> {
+  let mut result: Vec<u8> = value.preamble.into();
+  let mut body_bytes = value.body;
+  result.append(&mut body_bytes);
+  result
 }
 
-impl From<&DnsRecordUnknown> for Vec<u8> {
-  fn from(value: &DnsRecordUnknown) -> Self {
-    let mut result: Vec<u8> = value.preamble.clone().into();
-    let mut body_bytes = value.body.clone();
-    result.append(&mut body_bytes);
-    result
-  }
-}
-
+#[from]
 #[cfg(feature = "tui")]
-impl From<&DnsRecordUnknown> for ratatui::widgets::Row<'_> {
-  fn from(value: &DnsRecordUnknown) -> Self {
-    todo!()
-  }
+fn dns_record_unknown_to_ratatui_row(value: DnsRecordUnknown) -> ratatui::widgets::Row<'_> {
+  todo!()
 }
 
 #[derive(Clone, Debug)]
@@ -641,18 +621,17 @@ impl DnsRecordDROP {
   }
 }
 
+#[from]
 #[cfg(feature = "tui")]
-impl From<&DnsRecordDROP> for ratatui::widgets::Row<'_> {
-  fn from(dns_record_drop: &DnsRecordDROP) -> Self {
-    ratatui::widgets::Row::new(vec![
-      dns_record_drop.preamble.query_type.into(), 
-      dns_record_drop.preamble.domain.to_string(),
-      "".to_owned(),
-      "".to_owned(),
-      dns_record_drop.preamble.ttl.to_string(),
-      dns_record_drop.preamble.class.to_string(),
-    ])
-  }
+fn dns_record_drop_to_ratatui_row(dns_record_drop: DnsRecordDROP) -> ratatui::widgets::Row<'_> {
+  ratatui::widgets::Row::new(vec![
+    dns_record_drop.preamble.query_type.into(), 
+    dns_record_drop.preamble.domain.to_string(),
+    "".to_owned(),
+    "".to_owned(),
+    dns_record_drop.preamble.ttl.to_string(),
+    dns_record_drop.preamble.class.to_string(),
+  ])
 }
 
 #[derive(Clone, Debug)]
@@ -668,35 +647,27 @@ impl DnsRecordA {
   }
 }
 
-impl From<DnsRecordA> for Vec<u8> {
-  fn from(value: DnsRecordA) -> Self {
-    (&value).into()
-  }
+#[from]
+fn dns_record_a_to_vec_u8(value: DnsRecordA) -> Vec<u8> {
+  let mut result: Vec<u8> = value.preamble.into();
+  result.push(value.ip.octets()[0]);
+  result.push(value.ip.octets()[1]);
+  result.push(value.ip.octets()[2]);
+  result.push(value.ip.octets()[3]);
+  result
 }
 
-impl From<&DnsRecordA> for Vec<u8> {
-  fn from(value: &DnsRecordA) -> Vec<u8> {
-    let mut result: Vec<u8> = value.preamble.clone().into();
-    result.push(value.ip.octets()[0]);
-    result.push(value.ip.octets()[1]);
-    result.push(value.ip.octets()[2]);
-    result.push(value.ip.octets()[3]);
-    result
-  }
-}
-
+#[from]
 #[cfg(feature = "tui")]
-impl From<&DnsRecordA> for ratatui::widgets::Row<'_> {
-  fn from(dns_record_a: &DnsRecordA) -> Self {
-    ratatui::widgets::Row::new(vec![
-      dns_record_a.preamble.query_type.into(), 
-      dns_record_a.preamble.domain.to_string(),
-      dns_record_a.ip.to_string(),
-      "".to_owned(),
-      dns_record_a.preamble.ttl.to_string(),
-      dns_record_a.preamble.class.to_string(),
-    ])
-  }
+fn dns_record_a_to_ratatui_row(dns_record_a: DnsRecordA) -> ratatui::widgets::Row<'_> {
+  ratatui::widgets::Row::new(vec![
+    dns_record_a.preamble.query_type.into(), 
+    dns_record_a.preamble.domain.to_string(),
+    dns_record_a.ip.to_string(),
+    "".to_owned(),
+    dns_record_a.preamble.ttl.to_string(),
+    dns_record_a.preamble.class.to_string(),
+  ])
 }
 
 #[derive(Clone, Debug)]
@@ -713,33 +684,25 @@ impl DnsRecordNS {
   }
 }
 
-impl From<DnsRecordNS> for Vec<u8> {
-  fn from(value: DnsRecordNS) -> Self {
-    (&value).into()
-  }
+#[from]
+fn dns_record_ns_to_vec_u8(dns_record_ns: DnsRecordNS) -> Vec<u8> {
+  let mut result: Vec<u8> = dns_record_ns.preamble.into();
+  let mut domain_bytes = domain_name_to_bytes(dns_record_ns.host.as_str());
+  result.append(&mut domain_bytes);
+  result
 }
 
-impl From<&DnsRecordNS> for Vec<u8> {
-  fn from(dns_record_ns: &DnsRecordNS) -> Self {
-    let mut result: Vec<u8> = dns_record_ns.preamble.clone().into();
-    let mut domain_bytes = domain_name_to_bytes(dns_record_ns.host.as_str());
-    result.append(&mut domain_bytes);
-    result
-  }
-}
-
+#[from]
 #[cfg(feature = "tui")]
-impl From<&DnsRecordNS> for ratatui::widgets::Row<'_> {
-  fn from(dns_record_ns: &DnsRecordNS) -> Self {
-    ratatui::widgets::Row::new(vec![
-      dns_record_ns.preamble.query_type.into(), 
-      dns_record_ns.preamble.domain.to_string(),
-      dns_record_ns.host.to_string(),
-      "".to_owned(),
-      dns_record_ns.preamble.ttl.to_string(),
-      dns_record_ns.preamble.class.to_string(),
-    ])
-  }
+fn dns_record_ns_to_ratatui_row(dns_record_ns: DnsRecordNS) -> ratatui::widgets::Row<'_> {
+  ratatui::widgets::Row::new(vec![
+    dns_record_ns.preamble.query_type.into(), 
+    dns_record_ns.preamble.domain.to_string(),
+    dns_record_ns.host.to_string(),
+    "".to_owned(),
+    dns_record_ns.preamble.ttl.to_string(),
+    dns_record_ns.preamble.class.to_string(),
+  ])
 }
 
 #[derive(Clone, Debug)]
@@ -756,33 +719,25 @@ impl DnsRecordCNAME {
   }
 }
 
-impl From<DnsRecordCNAME> for Vec<u8> {
-  fn from(value: DnsRecordCNAME) -> Self {
-    (&value).into()
-  }
+#[from]
+fn dns_record_cname_to_vec_u8(dns_record_cname: DnsRecordCNAME) -> Vec<u8> {
+  let mut result: Vec<u8> = dns_record_cname.preamble.into();
+  let mut domain_bytes = domain_name_to_bytes(dns_record_cname.host.as_str());
+  result.append(&mut domain_bytes);
+  result
 }
 
-impl From<&DnsRecordCNAME> for Vec<u8> {
-  fn from(dns_record_cname: &DnsRecordCNAME) -> Vec<u8> {
-    let mut result: Vec<u8> = dns_record_cname.preamble.clone().into();
-    let mut domain_bytes = domain_name_to_bytes(dns_record_cname.host.as_str());
-    result.append(&mut domain_bytes);
-    result
-  }
-}
-
+#[from]
 #[cfg(feature = "tui")]
-impl From<&DnsRecordCNAME> for ratatui::widgets::Row<'_> {
-  fn from(dns_record_cname: &DnsRecordCNAME) -> Self {
-    ratatui::widgets::Row::new(vec![
-      dns_record_cname.preamble.query_type.into(), 
-      dns_record_cname.preamble.domain.to_string(),
-      dns_record_cname.host.to_string(),
-      "".to_owned(),
-      dns_record_cname.preamble.ttl.to_string(),
-      dns_record_cname.preamble.class.to_string(),
-    ])
-  }
+fn dns_record_cname_to_ratatui_row(dns_record_cname: DnsRecordCNAME) -> ratatui::widgets::Row<'_> {
+  ratatui::widgets::Row::new(vec![
+    dns_record_cname.preamble.query_type.into(), 
+    dns_record_cname.preamble.domain.to_string(),
+    dns_record_cname.host.to_string(),
+    "".to_owned(),
+    dns_record_cname.preamble.ttl.to_string(),
+    dns_record_cname.preamble.class.to_string(),
+  ])
 }
 
 #[derive(Clone, Debug)]
@@ -804,34 +759,26 @@ impl DnsRecordMX {
   }
 }
 
-impl From<DnsRecordMX> for Vec<u8> {
-  fn from(value: DnsRecordMX) -> Self {
-    (&value).into()
-  }
+#[from]
+fn dns_record_mx_to_vec_u8(dns_record_mx: DnsRecordMX) -> Vec<u8> {
+  let mut result: Vec<u8> = dns_record_mx.preamble.into();
+  result.append(&mut u16_to_bytes(dns_record_mx.priority));
+  let mut domain_bytes = domain_name_to_bytes(dns_record_mx.host.as_str());
+  result.append(&mut domain_bytes);
+  result
 }
 
-impl From<&DnsRecordMX> for Vec<u8> {
-  fn from(dns_record_mx: &DnsRecordMX) -> Self {
-    let mut result: Vec<u8> = dns_record_mx.preamble.clone().into();
-    result.append(&mut u16_to_bytes(dns_record_mx.priority));
-    let mut domain_bytes = domain_name_to_bytes(dns_record_mx.host.as_str());
-    result.append(&mut domain_bytes);
-    result
-  }
-}
-
+#[from]
 #[cfg(feature = "tui")]
-impl From<&DnsRecordMX> for ratatui::widgets::Row<'_> {
-  fn from(dns_record_mx: &DnsRecordMX) -> Self {
-    ratatui::widgets::Row::new(vec![
-      dns_record_mx.preamble.query_type.into(), 
-      dns_record_mx.preamble.domain.to_string(),
-      dns_record_mx.host.to_string(),
-      dns_record_mx.priority.to_string(),
-      dns_record_mx.preamble.ttl.to_string(),
-      dns_record_mx.preamble.class.to_string(),
-    ])
-  }
+fn dns_record_mx_to_ratatui_row(dns_record_mx: DnsRecordMX) -> ratatui::widgets::Row<'_> {
+  ratatui::widgets::Row::new(vec![
+    dns_record_mx.preamble.query_type.into(), 
+    dns_record_mx.preamble.domain.to_string(),
+    dns_record_mx.host.to_string(),
+    dns_record_mx.priority.to_string(),
+    dns_record_mx.preamble.ttl.to_string(),
+    dns_record_mx.preamble.class.to_string(),
+  ])
 }
 
 #[derive(Clone, Debug)]
@@ -847,37 +794,30 @@ impl DnsRecordAAAA {
   }
 }
 
-impl From<DnsRecordAAAA> for Vec<u8> {
-  fn from(value: DnsRecordAAAA) -> Self {
-    (&value).into()
-  }
+#[from]
+fn dns_record_aaaa_to_vec_u8(dns_record_aaaa: DnsRecordAAAA) -> Vec<u8> {
+  let mut result: Vec<u8> = dns_record_aaaa.preamble.into();
+  result.push(dns_record_aaaa.ip.octets()[0]);
+  result.push(dns_record_aaaa.ip.octets()[1]);
+  result.push(dns_record_aaaa.ip.octets()[2]);
+  result.push(dns_record_aaaa.ip.octets()[3]);
+  result
 }
 
-impl From<&DnsRecordAAAA> for Vec<u8> {
-  fn from(dns_record_aaaa: &DnsRecordAAAA) -> Self {
-    let mut result: Vec<u8> = dns_record_aaaa.preamble.clone().into();
-    result.push(dns_record_aaaa.ip.octets()[0]);
-    result.push(dns_record_aaaa.ip.octets()[1]);
-    result.push(dns_record_aaaa.ip.octets()[2]);
-    result.push(dns_record_aaaa.ip.octets()[3]);
-    result
-  }
-}
-
+#[from]
 #[cfg(feature = "tui")]
-impl From<&DnsRecordAAAA> for ratatui::widgets::Row<'_> {
-  fn from(dns_record_aaaa: &DnsRecordAAAA) -> Self {
-    ratatui::widgets::Row::new(vec![
-      dns_record_aaaa.preamble.query_type.into(), 
-      dns_record_aaaa.preamble.domain.to_string(),
-      dns_record_aaaa.ip.to_string(),
-      "".to_owned(),
-      dns_record_aaaa.preamble.ttl.to_string(),
-      dns_record_aaaa.preamble.class.to_string(),
-    ])
-  }
+fn from(dns_record_aaaa: DnsRecordAAAA) -> ratatui::widgets::Row<'_> {
+  ratatui::widgets::Row::new(vec![
+    dns_record_aaaa.preamble.query_type.into(), 
+    dns_record_aaaa.preamble.domain.to_string(),
+    dns_record_aaaa.ip.to_string(),
+    "".to_owned(),
+    dns_record_aaaa.preamble.ttl.to_string(),
+    dns_record_aaaa.preamble.class.to_string(),
+  ])
 }
 
+#[derive(Clone)]
 pub struct CachedDnsRecord {
   pub cached_time: u32,
   pub record: DnsRecord
@@ -892,10 +832,9 @@ impl CachedDnsRecord {
   }
 }
 
+#[from]
 #[cfg(feature = "tui")]
-impl From<&CachedDnsRecord> for Row<'_> {
-  fn from(cached_dns_record: &CachedDnsRecord) -> Self {
-    let row = (&cached_dns_record.record).into();
-    row
-  }
+fn cached_dns_record_to_ratatui_row(cached_dns_record: CachedDnsRecord) -> ratatui::widgets::Row<'_> {
+  // TODO implement this properly to calculate the "Expires In" field
+  cached_dns_record.record.into()
 }
