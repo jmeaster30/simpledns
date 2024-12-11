@@ -6,14 +6,12 @@ use std::net::UdpSocket;
 
 pub struct DnsResolver {
   database: SimpleDatabase,
-  remote_lookup_port: u16,
 }
 
 impl DnsResolver {
-  pub fn new(database_file: String, remote_lookup_port: u16) -> DnsResolver {
+  pub fn new(database_file: String) -> DnsResolver {
     Self {
       database: SimpleDatabase::new(database_file),
-      remote_lookup_port,
     }
   }
 
@@ -66,7 +64,7 @@ impl DnsResolver {
   fn do_remote_lookup(&self, question: &DnsQuestion, packet: &mut DnsPacket) -> Result<(), Box<dyn Error>> {
     let server = (self.database.get_random_remote_lookup_server().unwrap(), 53);
 
-    let socket = UdpSocket::bind(("0.0.0.0", self.remote_lookup_port))?;
+    let socket = UdpSocket::bind(("0.0.0.0:0"))?;
 
     let mut remote_packet = DnsPacket::new();
     remote_packet.header.recurse_desired = true;

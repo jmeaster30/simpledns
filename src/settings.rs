@@ -2,6 +2,9 @@ use std::error::Error;
 use std::fs;
 use std::io::ErrorKind;
 use yaml_rust::YamlLoader;
+use std::path::Path;
+
+use crate::log_info;
 
 use crate::log_debug;
 
@@ -10,7 +13,6 @@ extern crate shellexpand;
 #[derive(Clone, Debug)]
 pub struct DnsSettings {
   pub listening_port: u16,
-  pub remote_lookup_port: u16,
   pub database_file: String,
   pub thread_count: u32,
   pub use_udp: bool,
@@ -33,10 +35,6 @@ impl DnsSettings {
         let listening_port = match config_settings["listening-port"].as_i64() {
           Some(x) => x as u16,
           None => 53,
-        };
-        let remote_lookup_port = match config_settings["remote-lookup-port"].as_i64() {
-          Some(x) => x as u16,
-          None => 42069,
         };
         let thread_count = match config_settings["thread-count"].as_i64() {
           Some(x) => x as u32,
@@ -61,7 +59,6 @@ impl DnsSettings {
 
         Ok(DnsSettings {
           listening_port,
-          remote_lookup_port,
           database_file,
           thread_count,
           use_udp,

@@ -139,7 +139,6 @@ fn main() -> Result<(), Box<dyn Error>> {
       };
       let settings = settings.expect("Error reading settings!");
       log_debug!("Settings: {:?}", settings);
-
       let server_udp = DnsUdpServer::new(settings.clone());
       let server_tcp = DnsTcpServer::new(settings.clone());
 
