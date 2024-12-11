@@ -138,7 +138,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         None                   => DnsSettings::load_default(),
       };
       let settings = settings.expect("Error reading settings!");
-      log_info!("Settings: {:?}", settings);
       log_debug!("Settings: {:?}", settings);
       let server_udp = DnsUdpServer::new(settings.clone());
       let server_tcp = DnsTcpServer::new(settings.clone());
