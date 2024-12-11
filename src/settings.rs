@@ -81,16 +81,11 @@ impl DnsSettings {
   pub fn load_default() -> Result<Self, Box<dyn Error>> {
     let filenames = ["./dns.config.yaml", "~/.config/simpledns/dns.config.yaml", "/etc/simpledns/dns.config.yaml"];
     let mut config_file = "";
-<<<<<<< HEAD
-    for filename in filenames {    
-      if Path::new(filename).exists() { config_file = filename; break; }
-=======
     for filename in filenames { 
       if fs::exists(shellexpand::full(filename).unwrap().to_string())? { 
         config_file = filename; 
         break; 
       }
->>>>>>> 9d5dd64024a8a32f77a516039640859cd153d603
     }
     if config_file == "" { panic!("No valid config file given"); }
     Self::load_from_file(String::from(config_file))

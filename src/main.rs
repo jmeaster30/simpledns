@@ -138,12 +138,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         None                   => DnsSettings::load_default(),
       };
       let settings = settings.expect("Error reading settings!");
-<<<<<<< HEAD
       log_info!("Settings: {:?}", settings);
-=======
       log_debug!("Settings: {:?}", settings);
->>>>>>> 9d5dd64024a8a32f77a516039640859cd153d603
-
       let server_udp = DnsUdpServer::new(settings.clone());
       let server_tcp = DnsTcpServer::new(settings.clone());
 
@@ -169,80 +165,6 @@ fn main() -> Result<(), Box<dyn Error>> {
       // #[allow(unreachable_code)] doesn't work
       _handle.join().unwrap();
     }
-<<<<<<< HEAD
-    Commands::Add { config, interactive, .. } if interactive => {
-      let settings = match config {
-        Some(filename) => DnsSettings::load_from_file(filename.clone()),
-        None                   => DnsSettings::load_default(),
-      };
-      let settings = settings.expect("Error reading settings!");
-      log_info!("Database File Path: {:#?}", settings.database_file);
-
-      let domain = get_input("Domain: ", None, "A domain is required.", |x| !x.is_empty()); // TODO should check for valid domain
-      let query_type = DnsQueryType::from_string(get_input("Record Type: ",
-                                 None,
-                                 "A record type is required [A, NS, CNAME, MX, AAAA, DROP]",
-                                 |x| ["A", "NS", "CNAME", "MX", "AAAA", "DROP"].contains(&x.to_uppercase().as_str())).as_str());
-      let class = get_input("Class [default 1]: ",
-                            Some("1".to_string()),
-                            "A valid u16 must be supplied.",
-                            |x| !x.is_empty() && x.parse::<u16>().is_ok()).parse::<u16>().unwrap();
-      let ttl = get_input("TTL [default 300]: ",
-                          Some("300".to_string()),
-                          "A valid u32 must be supplied.",
-                          |x| !x.is_empty() && x.parse::<u32>().is_ok()).parse::<u32>().unwrap();
-      let preamble = DnsRecordPreamble::build(domain, query_type, class, ttl);
-
-      let record = match query_type {
-        DnsQueryType::Unknown(_) => panic!("Impossible state"),
-        DnsQueryType::A => {
-          let ip = get_input("IP: ", None, "A valid ip address is required.", |x| Ipv4Addr::from_str(x.as_str()).is_ok());
-          DnsRecord::A(DnsRecordA::new(preamble, Ipv4Addr::from_str(ip.as_str()).unwrap()))
-        }
-        DnsQueryType::NS => {
-          let host = get_input("Host: ", None, "A host is required.", |x| !x.is_empty());
-          DnsRecord::NS(DnsRecordNS::new(preamble, host))
-        }
-        DnsQueryType::CNAME => {
-          let host = get_input("Host: ", None, "A host is required.", |x| !x.is_empty());
-          DnsRecord::CNAME(DnsRecordCNAME::new(preamble, host))
-        }
-        DnsQueryType::MX => {
-          let host = get_input("Host: ", None, "A host is required.", |x| !x.is_empty());
-          let priority = get_input("Priority: ", None, "A valid u16 priority is required.", |x| !x.is_empty() && x.parse::<u16>().is_ok()).parse::<u16>().unwrap();
-          DnsRecord::MX(DnsRecordMX::new(preamble, priority, host))
-        }
-        DnsQueryType::AAAA => {
-          let ip = get_input("IP: ", None, "A valid ip address is required.", |x| Ipv4Addr::from_str(x.as_str()).is_ok());
-          DnsRecord::AAAA(DnsRecordAAAA::new(preamble, Ipv4Addr::from_str(ip.as_str()).unwrap()))
-        }
-        DnsQueryType::DROP => DnsRecord::DROP(DnsRecordDROP::new(preamble))
-      };
-
-      let database = SimpleDatabase::new(settings.database_file);
-      database.insert_record(record.clone(), false)?;
-      log_info!("Successfully added record: {:?}", record);
-    }
-    Commands::Add { config, interactive, domain, query_type, class, ttl, host, ip, priority } if !interactive => {
-      let settings = match config {
-        Some(filename) => DnsSettings::load_from_file(filename.clone()),
-        None                   => DnsSettings::load_default(),
-      };
-      let settings = settings.expect("Error reading settings!");
-      log_info!("Database File Path: {:#?}", settings.database_file);
-
-      let domain = domain.unwrap();
-      let query_type = DnsQueryType::from_string(query_type.unwrap().as_str());
-      let preamble = DnsRecordPreamble::build(domain, query_type, class, ttl);
-      let record = match query_type {
-        DnsQueryType::Unknown(_) => panic!("Impossible state"),
-        DnsQueryType::A => DnsRecord::A(DnsRecordA::new(preamble, Ipv4Addr::from_str(ip.unwrap().as_str()).expect("Couldn't parse ipv4 address"))),
-        DnsQueryType::NS => DnsRecord::NS(DnsRecordNS::new(preamble, host.unwrap())),
-        DnsQueryType::CNAME => DnsRecord::CNAME(DnsRecordCNAME::new(preamble, host.unwrap())),
-        DnsQueryType::MX => DnsRecord::MX(DnsRecordMX::new(preamble, priority.unwrap(), host.unwrap())),
-        DnsQueryType::AAAA => DnsRecord::AAAA(DnsRecordAAAA::new(preamble, Ipv4Addr::from_str(ip.unwrap().as_str()).expect("Couldn't parse ipv4 address"))),
-        DnsQueryType::DROP => DnsRecord::DROP(DnsRecordDROP::new(preamble)),
-=======
     #[cfg(feature = "tui")]
     Commands::Tui { config } => {
       let settings = match config {
@@ -259,7 +181,6 @@ fn main() -> Result<(), Box<dyn Error>> {
       let settings = match config {
         Some(filename) => DnsSettings::load_from_file(filename.clone()),
         None                   => DnsSettings::load_default(),
->>>>>>> 9d5dd64024a8a32f77a516039640859cd153d603
       };
       let settings = settings.expect("Error reading settings!");
       log_debug!("Database File Path: {:#?}", settings.database_file);
