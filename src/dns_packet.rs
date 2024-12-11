@@ -1,6 +1,9 @@
 use std::io::{Error, ErrorKind};
 use std::net::Ipv4Addr;
 
+#[cfg(feature = "tui")]
+use ratatui::widgets::Row;
+
 #[derive(Clone, Debug)]
 pub struct DnsPacket {
   pub header: DnsHeader,
@@ -433,6 +436,61 @@ impl DnsRecord {
       DnsRecord::DROP(_) => Vec::new(),
     }
   }
+
+  #[cfg(feature = "tui")]
+  pub fn to_row(&self) -> Row<'_> {
+    match self {
+      DnsRecord::Unknown(dns_record_unknown) => todo!(),
+      DnsRecord::A(dns_record_a) => Row::new(vec![
+        dns_record_a.preamble.query_type.into(), 
+        dns_record_a.preamble.domain.to_string(),
+        dns_record_a.ip.to_string(),
+        "".to_owned(),
+        dns_record_a.preamble.ttl.to_string(),
+        dns_record_a.preamble.class.to_string(),
+      ]),
+      DnsRecord::NS(dns_record_ns) => Row::new(vec![
+        dns_record_ns.preamble.query_type.into(), 
+        dns_record_ns.preamble.domain.to_string(),
+        dns_record_ns.host.to_string(),
+        "".to_owned(),
+        dns_record_ns.preamble.ttl.to_string(),
+        dns_record_ns.preamble.class.to_string(),
+      ]),
+      DnsRecord::CNAME(dns_record_cname) => Row::new(vec![
+        dns_record_cname.preamble.query_type.into(), 
+        dns_record_cname.preamble.domain.to_string(),
+        dns_record_cname.host.to_string(),
+        "".to_owned(),
+        dns_record_cname.preamble.ttl.to_string(),
+        dns_record_cname.preamble.class.to_string(),
+      ]),
+      DnsRecord::MX(dns_record_mx) => Row::new(vec![
+        dns_record_mx.preamble.query_type.into(), 
+        dns_record_mx.preamble.domain.to_string(),
+        dns_record_mx.host.to_string(),
+        dns_record_mx.priority.to_string(),
+        dns_record_mx.preamble.ttl.to_string(),
+        dns_record_mx.preamble.class.to_string(),
+      ]),
+      DnsRecord::AAAA(dns_record_aaaa) => Row::new(vec![
+        dns_record_aaaa.preamble.query_type.into(), 
+        dns_record_aaaa.preamble.domain.to_string(),
+        dns_record_aaaa.ip.to_string(),
+        "".to_owned(),
+        dns_record_aaaa.preamble.ttl.to_string(),
+        dns_record_aaaa.preamble.class.to_string(),
+      ]),
+      DnsRecord::DROP(dns_record_drop) => Row::new(vec![
+        dns_record_drop.preamble.query_type.into(), 
+        dns_record_drop.preamble.domain.to_string(),
+        "".to_owned(),
+        "".to_owned(),
+        dns_record_drop.preamble.ttl.to_string(),
+        dns_record_drop.preamble.class.to_string(),
+      ])
+    }
+  }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -480,6 +538,48 @@ impl DnsQueryType {
       "AAAA" => DnsQueryType::AAAA,
       "DROP" => DnsQueryType::DROP,
       _ => DnsQueryType::Unknown(0),
+    }
+  }
+}
+
+impl From<String> for DnsQueryType {
+  fn from(value: String) -> Self {
+    match value.to_uppercase().as_str() {
+      "A" => DnsQueryType::A,
+      "NS" => DnsQueryType::NS,
+      "CNAME" => DnsQueryType::CNAME,
+      "MX" => DnsQueryType::MX,
+      "AAAA" => DnsQueryType::AAAA,
+      "DROP" => DnsQueryType::DROP,
+      _ => DnsQueryType::Unknown(0),
+    }
+  }
+}
+
+impl From<&str> for DnsQueryType {
+  fn from(value: &str) -> Self {
+    match value.to_uppercase().as_str() {
+      "A" => DnsQueryType::A,
+      "NS" => DnsQueryType::NS,
+      "CNAME" => DnsQueryType::CNAME,
+      "MX" => DnsQueryType::MX,
+      "AAAA" => DnsQueryType::AAAA,
+      "DROP" => DnsQueryType::DROP,
+      _ => DnsQueryType::Unknown(0),
+    }
+  }
+}
+
+impl From<DnsQueryType> for String {
+  fn from(value: DnsQueryType) -> Self {
+    match value {
+      DnsQueryType::Unknown(x) => format!("?? ({})", x),
+      DnsQueryType::A => "A".to_string(),
+      DnsQueryType::NS => "NS".to_string(),
+      DnsQueryType::CNAME => "CNAME".to_string(),
+      DnsQueryType::MX => "MX".to_string(),
+      DnsQueryType::AAAA => "AAAA".to_string(),
+      DnsQueryType::DROP => "DROP".to_string(),
     }
   }
 }

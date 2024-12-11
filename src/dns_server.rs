@@ -67,10 +67,15 @@ impl DnsServer for DnsUdpServer {
 
             // process request
             let resolver = DnsResolver::new(settings.database_file.clone(), settings.remote_lookup_port);
-            let response_packet = resolver.answer_question(request_packet);
-
-            // send result back
-            ignore_result_and_log_error!(socket_clone.send_to(response_packet.to_bytes().as_slice(), source));
+  
+            match resolver.answer_question(request_packet) {
+              Ok(result) => {
+                ignore_result_and_log_error!(socket_clone.send_to(result.to_bytes().as_slice(), source));
+              }
+              Err(error) => {
+                log_error!("Resolver error {}", error)
+              }
+            }
           }
         })?;
     }
@@ -152,10 +157,15 @@ impl DnsServer for DnsTcpServer {
           let request = return_result_or_log_error_continue!(DnsPacket::from_bytes(packet_buffer.as_slice()), "Failed to parse packet from buffer");
           let resolver = DnsResolver::new(settings.database_file.clone(), settings.remote_lookup_port);
 
-          let result = resolver.answer_question(request);
-
-          ignore_result_or_log_error_continue!(stream.write(result.to_bytes().as_slice()), "Failed writing result back to buffer");
-          ignore_result_or_log_error_continue!(stream.shutdown(Shutdown::Both), "Failed shutting down tcp connection");
+          match resolver.answer_question(request) {
+            Ok(result) => {
+              ignore_result_or_log_error_continue!(stream.write(result.to_bytes().as_slice()), "Failed writing result back to buffer");
+              ignore_result_or_log_error_continue!(stream.shutdown(Shutdown::Both), "Failed shutting down tcp connection");
+            }
+            Err(error) => {
+              log_error!("Resolver error {}", error)
+            }
+          }
         })?;
     }
 
