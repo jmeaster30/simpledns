@@ -1,5 +1,4 @@
 use std::io::{Error, ErrorKind};
-use std::net::Ipv4Addr;
 
 pub fn domain_name_to_bytes(value: &str) -> Vec<u8> {
   let splits = value.split('.');
@@ -96,18 +95,4 @@ pub fn get_u32(bytes: &[u8], index: usize) -> Result<u32, Error> {
       "Not enough bytes to get a u32",
     ))
   }
-}
-
-pub fn print_hex(bytes: String) {
-  for i in bytes.as_bytes() {
-    print!("{:02X} ", i);
-  }
-  println!();
-}
-
-pub fn print_hex_bytes(bytes: &Vec<u8>) {
-  for i in bytes {
-    print!("{:02X} ", i);
-  }
-  println!();
 }

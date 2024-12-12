@@ -1,6 +1,7 @@
 use crate::dns_packet::{
   CachedDnsRecord, DnsQueryType, DnsRecord, DnsRecordA, DnsRecordAAAA, DnsRecordCNAME, DnsRecordDROP, DnsRecordMX, DnsRecordNS, DnsRecordPreamble, DnsRecordUnknown
 };
+use chrono::{Local, TimeZone};
 use rusqlite::{params, Connection, Params, Result, Statement, Row};
 use std::net::Ipv4Addr;
 use std::str;
@@ -61,8 +62,25 @@ impl SimpleDatabase {
     })
   }
 
+  fn row_to_cached_dns_record(&self, row: &Row<'_>) -> Result<CachedDnsRecord> {
+    let record = self.row_to_dns_record(row)?;
+    let insert_timestamp = row.get(7)?;
+    let insert_time = Local.timestamp_opt(insert_timestamp, 0).unwrap();
+    Ok(CachedDnsRecord::new(record, insert_time))
+  }
+
   fn run_dns_record_query<P: Params>(&self, mut statement: Statement<'_>, params: P) -> Result<Vec<DnsRecord>> {
     let query_results = statement.query_map(params, |row| self.row_to_dns_record(row))?;
+
+    let mut results = Vec::new();
+    for record in query_results {
+      results.push(record?);
+    }
+    Ok(results)
+  }
+
+  fn run_cached_dns_record_query<P: Params>(&self, mut statement: Statement<'_>, params: P) -> Result<Vec<CachedDnsRecord>> {
+    let query_results = statement.query_map(params, |row| self.row_to_cached_dns_record(row))?;
 
     let mut results = Vec::new();
     for record in query_results {
@@ -99,8 +117,9 @@ impl SimpleDatabase {
   }
 
   pub fn get_all_cached_records(&self) -> Result<Vec<CachedDnsRecord>> {
-    //todo!();
-    Ok(Vec::new())
+    self.clean_up_cache()?;
+    let stmt = self.connection.prepare("SELECT domain, query_type, class, ttl, len, hostipbody, priority, insert_time FROM cached_records;")?;
+    self.run_cached_dns_record_query(stmt, params![])
   }
 
   pub fn insert_record(&self, record: DnsRecord) -> Result<()> {

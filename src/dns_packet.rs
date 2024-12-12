@@ -1,8 +1,7 @@
 use std::io::{Error, ErrorKind};
 use std::net::Ipv4Addr;
 
-use rusqlite::Row;
-
+use chrono::{Local, DateTime, Duration};
 use simple_macros::from;
 
 use crate::utils::{domain_name_to_bytes, get_name_from_packet, get_u16, get_u32, u16_to_bytes, u32_to_bytes};
@@ -450,7 +449,7 @@ fn dns_record_to_vec_u8(value: DnsRecord) -> Vec<u8> {
 #[cfg(feature = "tui")]
 fn dns_record_to_ratatui_row(value: DnsRecord) -> ratatui::widgets::Row<'_> {
   match value {
-    DnsRecord::Unknown(dns_record_unknown) => todo!(),
+    DnsRecord::Unknown(_) => todo!(),
     DnsRecord::A(dns_record_a) => dns_record_a.into(),
     DnsRecord::NS(dns_record_ns) => dns_record_ns.into(),
     DnsRecord::CNAME(dns_record_cname) => dns_record_cname.into(),
@@ -606,7 +605,7 @@ fn dns_record_unknown_to_vec_u8(value: DnsRecordUnknown) -> Vec<u8> {
 
 #[from]
 #[cfg(feature = "tui")]
-fn dns_record_unknown_to_ratatui_row(value: DnsRecordUnknown) -> ratatui::widgets::Row<'_> {
+fn dns_record_unknown_to_ratatui_row(_dns_record_unknown: DnsRecordUnknown) -> ratatui::widgets::Row<'_> {
   todo!()
 }
 
@@ -628,8 +627,8 @@ fn dns_record_drop_to_ratatui_row(dns_record_drop: DnsRecordDROP) -> ratatui::wi
     dns_record_drop.preamble.query_type.into(), 
     dns_record_drop.preamble.domain.to_string(),
     "".to_owned(),
-    "".to_owned(),
     dns_record_drop.preamble.ttl.to_string(),
+    "".to_owned(),
     dns_record_drop.preamble.class.to_string(),
   ])
 }
@@ -664,8 +663,8 @@ fn dns_record_a_to_ratatui_row(dns_record_a: DnsRecordA) -> ratatui::widgets::Ro
     dns_record_a.preamble.query_type.into(), 
     dns_record_a.preamble.domain.to_string(),
     dns_record_a.ip.to_string(),
-    "".to_owned(),
     dns_record_a.preamble.ttl.to_string(),
+    "".to_owned(),
     dns_record_a.preamble.class.to_string(),
   ])
 }
@@ -699,8 +698,8 @@ fn dns_record_ns_to_ratatui_row(dns_record_ns: DnsRecordNS) -> ratatui::widgets:
     dns_record_ns.preamble.query_type.into(), 
     dns_record_ns.preamble.domain.to_string(),
     dns_record_ns.host.to_string(),
-    "".to_owned(),
     dns_record_ns.preamble.ttl.to_string(),
+    "".to_owned(),
     dns_record_ns.preamble.class.to_string(),
   ])
 }
@@ -734,8 +733,8 @@ fn dns_record_cname_to_ratatui_row(dns_record_cname: DnsRecordCNAME) -> ratatui:
     dns_record_cname.preamble.query_type.into(), 
     dns_record_cname.preamble.domain.to_string(),
     dns_record_cname.host.to_string(),
-    "".to_owned(),
     dns_record_cname.preamble.ttl.to_string(),
+    "".to_owned(),
     dns_record_cname.preamble.class.to_string(),
   ])
 }
@@ -775,8 +774,8 @@ fn dns_record_mx_to_ratatui_row(dns_record_mx: DnsRecordMX) -> ratatui::widgets:
     dns_record_mx.preamble.query_type.into(), 
     dns_record_mx.preamble.domain.to_string(),
     dns_record_mx.host.to_string(),
-    dns_record_mx.priority.to_string(),
     dns_record_mx.preamble.ttl.to_string(),
+    dns_record_mx.priority.to_string(),
     dns_record_mx.preamble.class.to_string(),
   ])
 }
@@ -811,20 +810,20 @@ fn from(dns_record_aaaa: DnsRecordAAAA) -> ratatui::widgets::Row<'_> {
     dns_record_aaaa.preamble.query_type.into(), 
     dns_record_aaaa.preamble.domain.to_string(),
     dns_record_aaaa.ip.to_string(),
-    "".to_owned(),
     dns_record_aaaa.preamble.ttl.to_string(),
+    "".to_owned(),
     dns_record_aaaa.preamble.class.to_string(),
   ])
 }
 
 #[derive(Clone)]
 pub struct CachedDnsRecord {
-  pub cached_time: u32,
+  pub cached_time: DateTime<Local>,
   pub record: DnsRecord
 }
 
 impl CachedDnsRecord {
-  pub fn new(record: DnsRecord, cached_time: u32) -> Self {
+  pub fn new(record: DnsRecord, cached_time: DateTime<Local>) -> Self {
     Self {
       cached_time,
       record
@@ -835,6 +834,25 @@ impl CachedDnsRecord {
 #[from]
 #[cfg(feature = "tui")]
 fn cached_dns_record_to_ratatui_row(cached_dns_record: CachedDnsRecord) -> ratatui::widgets::Row<'_> {
-  // TODO implement this properly to calculate the "Expires In" field
-  cached_dns_record.record.into()
+  let preamble = cached_dns_record.record.clone().get_preamble();
+  let since_insert = Local::now() - cached_dns_record.cached_time;
+  let expires_in = Duration::seconds(preamble.ttl.into()) - since_insert;
+  ratatui::widgets::Row::new(vec![
+    preamble.query_type.into(), 
+    preamble.domain.to_string(),
+    match &cached_dns_record.record {
+      DnsRecord::A(dns_record_a) => dns_record_a.ip.to_string(),
+      DnsRecord::NS(dns_record_ns) => dns_record_ns.host.to_string(),
+      DnsRecord::CNAME(dns_record_cname) => dns_record_cname.host.to_string(),
+      DnsRecord::MX(dns_record_mx) => dns_record_mx.host.to_string(),
+      DnsRecord::AAAA(dns_record_aaaa) => dns_record_aaaa.ip.to_string(),
+      _ => String::new()
+    },
+    match &cached_dns_record.record {
+      DnsRecord::MX(dns_record_mx) => dns_record_mx.priority.to_string(),
+      _ => String::new()
+    },
+    format!("{} sec", expires_in.num_seconds()),
+    preamble.class.to_string(),
+  ])
 }

@@ -1,10 +1,10 @@
 use std::time::Duration;
 
-use ratatui::{buffer::Buffer, crossterm::event::KeyCode, layout::Rect, text::{Line, Text}, widgets::{Block, Chart, Dataset, Paragraph, Row, Table, Widget}};
+use ratatui::{buffer::Buffer, crossterm::event::KeyCode, layout::{Constraint, Rect}, text::{Line, Text}, widgets::{Block, Paragraph, Row, Table, Widget}};
 use ratatui::prelude::Stylize;
 use ratatui::prelude::Style;
 
-use crate::{dns_packet::DnsRecord, settings::DnsSettings, simple_database::SimpleDatabase};
+use crate::{settings::DnsSettings, simple_database::SimpleDatabase};
 
 use super::{event::{SimpleEvent, SimpleEventResult}, view::View};
 
@@ -30,14 +30,26 @@ impl View for CacheListView {
       Ok(records) => {
         Table::default()
           .rows(records.iter().collect::<Vec<Row<'_>>>())
-          .header(Row::new(vec!["Query Type", "Domain", "Host/IP", "Priority", "Expires In", "Class"]).underlined().cyan())
+          .header(Row::new(vec!["Query Type", "Domain", "Host/IP", "Expires In", "Priority", "Class"]).underlined().cyan())
+          .widths([
+            Constraint::Length(12),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Length(12),
+            Constraint::Length(10),
+            Constraint::Length(7)
+          ])
           .row_highlight_style(Style::new().underlined())
           .highlight_symbol("->")
           .block(block)
           .render(area, buf); 
       }
-      Err(error) => {
-        Paragraph::new("ERROR GETTING LIST OF CACHED RECORDS FROM DB")
+      Err(err) => {
+        let text = vec![
+          "ERROR GETTING LIST OF CACHED RECORDS FROM DB".into(),
+          err.to_string().into()
+        ];
+        Paragraph::new(text)
           .centered()
           .red()
           .bold()
@@ -46,10 +58,9 @@ impl View for CacheListView {
           .render(area, buf);
       }
     }
-    
   }
 
-  fn handle_event(&mut self, event: SimpleEvent) -> SimpleEventResult {
+  fn handle_event(&mut self, _: SimpleEvent) -> SimpleEventResult {
     SimpleEventResult::Bubble
   }
 

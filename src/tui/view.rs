@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use ratatui::{buffer::Buffer, crossterm::event::KeyCode, layout::Rect, text::{Line, Text}, widgets::{Block, Widget}};
+use ratatui::{buffer::Buffer, crossterm::event::KeyCode, layout::Rect, text::{Line, Text}, widgets::Block};
 
 use super::event::{SimpleEvent, SimpleEventResult};
 

@@ -1,16 +1,12 @@
 extern crate proc_macro;
 use proc_macro::TokenStream;
-use std::any::Any;
-use std::cmp::min;
-use std::str::FromStr;
-use quote::{quote, ToTokens, TokenStreamExt};
-use syn::{parse_macro_input, Attribute, Data, Expr, Fields, Lit, Meta, ReturnType, Token};
-use syn::parse::Parse;
+use quote::quote;
+use syn::{Attribute, Meta, ReturnType};
 
 // TODO this shouldn't require the from type to derive clone
 // TODO I want this to take an attr argument to control whether we generate FromIterator or not
 #[proc_macro_attribute]
-pub fn from(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn from(_attr: TokenStream, item: TokenStream) -> TokenStream {
   let ast = syn::parse::<syn::ItemFn>(item).expect("The #[from] macro can only be applied to free-standing functions");
 
   if ast.sig.inputs.len() != 1 || ast.sig.output == ReturnType::Default {
