@@ -34,12 +34,6 @@ macro_rules! log_error {
     };
 }
 
-// TODO this was originally more complicated and not exactly sure if I want to put it back
-#[macro_export]
-macro_rules! local_ip {
-    () => { "0.0.0.0" }
-}
-
 #[macro_export]
 macro_rules! ignore_result_and_log_error {
     ($x:expr) => {
