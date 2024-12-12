@@ -1,8 +1,9 @@
 use crate::dns_packet::{DnsPacket, DnsQueryType, DnsQuestion, DnsRecord, DnsResponseCode};
 use crate::simple_database::SimpleDatabase;
-use crate::{ignore_result_and_log_error, log_debug, log_error, log_info};
+use crate::{ignore_result_and_log_error, log_debug, log_error, log_info, local_ip};
 use std::error::Error;
 use std::net::UdpSocket;
+use std::time::Duration;
 
 pub struct DnsResolver {
   database: SimpleDatabase,
@@ -62,6 +63,7 @@ impl DnsResolver {
   }
 
   fn do_remote_lookup(&self, question: &DnsQuestion, packet: &mut DnsPacket) -> Result<(), Box<dyn Error>> {
+    log_debug!("Doing remote lookup {:?} {:?}", question, packet);
     let server = (self.database.get_random_remote_lookup_server().unwrap(), 53);
 
     let socket = UdpSocket::bind(("0.0.0.0:0"))?;
@@ -69,12 +71,15 @@ impl DnsResolver {
     let mut remote_packet = DnsPacket::new();
     remote_packet.header.recurse_desired = true;
     remote_packet.add_question(DnsQuestion::new(question.name.clone(), question.query_type));
-    let remote_packet_bytes = packet.to_bytes();
-
-    socket.send_to(&remote_packet_bytes, server)?;
+    let remote_packet_bytes = remote_packet.to_bytes();
 
     let mut res: [u8; 512] = [0; 512];
-    socket.recv_from(&mut res)?;
+
+    log_debug!("Sending {:?} to {:?}", packet, server);
+    let sent = socket.send_to(&remote_packet_bytes, server)?;
+    log_debug!("Sent {} bytes", sent);
+    let (received, source_addr) = socket.recv_from(&mut res)?;
+    log_info!("Received {} bytes from {:?}", received, source_addr);
 
     match DnsPacket::from_bytes(&res) {
       Ok(result) => {
@@ -85,21 +90,21 @@ impl DnsResolver {
         for ans in result.answer_section {
           log_debug!("Answer: {:?}", ans);
           packet.answer_section.push(ans.clone());
-          ignore_result_and_log_error!(self.database.insert_record(ans, true));
+          ignore_result_and_log_error!(self.database.insert_cache_record(ans));
           packet.header.answer_count += 1;
         }
 
         for auth in result.authority_section {
           log_debug!("Authority: {:?}", auth);
           packet.authority_section.push(auth.clone());
-          ignore_result_and_log_error!(self.database.insert_record(auth, true));
+          ignore_result_and_log_error!(self.database.insert_cache_record(auth));
           packet.header.authority_count += 1;
         }
 
         for add in result.additional_section {
           log_debug!("Resource: {:?}", add);
           packet.additional_section.push(add.clone());
-          ignore_result_and_log_error!(self.database.insert_record(add, true));
+          ignore_result_and_log_error!(self.database.insert_cache_record(add));
           packet.header.additional_count += 1;
         }
       }
@@ -108,6 +113,7 @@ impl DnsResolver {
         packet.header.response_code = DnsResponseCode::SERVFAIL;
       }
     }
+    log_debug!("Exiting do_remote_lookup");
     Ok(())
   }
 

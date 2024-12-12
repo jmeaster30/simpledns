@@ -5,6 +5,7 @@ pub mod dns_server;
 mod macros;
 mod settings;
 mod simple_database;
+mod utils;
 
 #[cfg(feature = "tui")]
 mod tui;
@@ -128,7 +129,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
       let database = SimpleDatabase::new(settings.database_file);
       match database.initialize() {
-        Ok(_) => log_debug!("Successfully initialized the database :)"),
+        Ok(_) => log_info!("Successfully initialized the database :)"),
         Err(error) => log_error!("There was an error while initializing the database :( | {}", error),
       }
     }
@@ -173,7 +174,7 @@ fn main() -> Result<(), Box<dyn Error>> {
       tui_start(&settings)?;
     }
     #[cfg(not(feature = "tui"))]
-    Commands::Tui { config } => {
+    Commands::Tui { .. } => {
       log_error!("simpledns was not built with the TUI feature :( please rebuild with `cargo build --features \"tui\"`...")
     }
     Commands::Add { config, interactive, .. } if interactive => {

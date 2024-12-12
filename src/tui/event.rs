@@ -1,4 +1,6 @@
 use ratatui::crossterm::event::{Event, KeyEvent, MouseEvent};
+// TODO remove this as we start using more of these
+#[allow(unused)]
 
 #[derive(Clone)]
 pub enum SimpleEvent {
@@ -24,6 +26,7 @@ impl From<Event> for SimpleEvent {
 }
 
 pub enum SimpleEventResult {
+  #[allow(dead_code)]
   Consume,
   Bubble
 }

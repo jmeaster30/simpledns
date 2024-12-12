@@ -1,9 +1,7 @@
-use std::borrow::Borrow;
 use std::io::Result;
-use std::thread::current;
 
 use ratatui::buffer::Buffer;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, MouseEvent};
+use ratatui::crossterm::event::{self, KeyCode, KeyEventKind};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::prelude::Stylize;
 use ratatui::style::Style;
@@ -14,8 +12,8 @@ use ratatui::{DefaultTerminal, Frame};
 
 use crate::settings::DnsSettings;
 use crate::log_debug;
-use crate::simple_database::SimpleDatabase;
 
+use super::cache_list_view::CacheListView;
 use super::event::{SimpleEvent, SimpleEventResult};
 use super::record_list_view::RecordListView;
 use super::view::View;
@@ -50,7 +48,6 @@ impl AppState {
 }
 
 struct App {
-  //simple_connection: SimpleDatabase,
   views: Vec<Box<dyn View>>,
   exit: bool
 }
@@ -58,8 +55,10 @@ struct App {
 impl App {
   pub fn new(settings: &DnsSettings) -> Self {
     Self {
-      //simple_connection: SimpleDatabase::new(settings.database_file.clone()),
-      views: vec![RecordListView::new_boxed(settings)],
+      views: vec![
+        RecordListView::new_boxed(settings),
+        CacheListView::new_boxed(settings)
+      ],
       exit: false
     }
   }
@@ -76,8 +75,8 @@ impl App {
     frame.render_stateful_widget(self, frame.area(), state);
   }
 
-  pub fn handle_events(&mut self, state: &AppState) -> Result<()> {
-    let mut current_view = &mut self.views[state.current_view()];
+  pub fn handle_events(&mut self, state: &mut AppState) -> Result<()> {
+    let current_view = &mut self.views[state.current_view()];
     match event::poll(current_view.poll_rate()) {
       Ok(true) => {
         let simple_event: SimpleEvent = event::read()?.into();
@@ -87,12 +86,19 @@ impl App {
             SimpleEvent::Key(key) if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc => {
               self.exit = true;
             }
+            SimpleEvent::Key(key) if key.kind == KeyEventKind::Press => {
+              for (idx, view) in self.views.iter().enumerate() {
+                if key.code == view.open_view_control() {
+                  state.selected_view = ListState::default().with_selected(Some(idx))
+                }
+              }
+            }
             _ => {}
           }
         }
       }
       Ok(false) => { current_view.handle_event(SimpleEvent::Tick); }
-      Err(error) => {} // WHAT TO DO???
+      Err(_) => {} // WHAT TO DO???
     }
     Ok(())
   }

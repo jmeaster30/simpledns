@@ -8,11 +8,11 @@ use crate::{settings::DnsSettings, simple_database::SimpleDatabase};
 
 use super::{event::{SimpleEvent, SimpleEventResult}, view::View};
 
-pub struct RecordListView { 
+pub struct CacheListView { 
   simple_database: SimpleDatabase
 }
 
-impl RecordListView { 
+impl CacheListView { 
   pub fn new(settings: &DnsSettings) -> Self {
     Self {
       simple_database: SimpleDatabase::new(settings.database_file.clone())
@@ -24,13 +24,13 @@ impl RecordListView {
   }
 }
 
-impl View for RecordListView {
+impl View for CacheListView {
   fn draw(&self, block: Block, area: Rect, buf: &mut Buffer) {
-    match self.simple_database.get_all_records() {
+    match self.simple_database.get_all_cached_records() {
       Ok(records) => {
         Table::default()
-          .rows(records.iter().collect::<Vec<Row<'_>>>()) // TODO There has to be a better way
-          .header(Row::new(vec!["Query Type", "Domain", "Host/IP", "TTL", "Priority", "Class"]).underlined().cyan())
+          .rows(records.iter().collect::<Vec<Row<'_>>>())
+          .header(Row::new(vec!["Query Type", "Domain", "Host/IP", "Expires In", "Priority", "Class"]).underlined().cyan())
           .widths([
             Constraint::Length(12),
             Constraint::Fill(1),
@@ -44,8 +44,12 @@ impl View for RecordListView {
           .block(block)
           .render(area, buf); 
       }
-      Err(_) => {
-        Paragraph::new("ERROR GETTING LIST OF RECORDS FROM DB")
+      Err(err) => {
+        let text = vec![
+          "ERROR GETTING LIST OF CACHED RECORDS FROM DB".into(),
+          err.to_string().into()
+        ];
+        Paragraph::new(text)
           .centered()
           .red()
           .bold()
@@ -54,7 +58,6 @@ impl View for RecordListView {
           .render(area, buf);
       }
     }
-    
   }
 
   fn handle_event(&mut self, _: SimpleEvent) -> SimpleEventResult {
@@ -62,14 +65,14 @@ impl View for RecordListView {
   }
 
   fn open_view_control(&self) -> KeyCode {
-    KeyCode::Char('r')
+    KeyCode::Char('c')
   }
 
   fn name(&self) -> Line {
     Line::from(vec![
       " ".into(),
-      "R".red().bold(),
-      "ecords".blue(),
+      "C".red().bold(),
+      "ached Records".blue(),
       " ".into()
     ])
   }

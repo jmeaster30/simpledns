@@ -7,7 +7,7 @@ use std::sync::mpsc::{channel, Sender};
 use std::thread::Builder;
 use rand::random;
 
-use crate::dns_packet::*;
+use crate::{dns_packet::*, local_ip, log_debug};
 use crate::dns_resolver::DnsResolver;
 use crate::settings::DnsSettings;
 use crate::{ignore_result_and_log_error, ignore_result_or_log_error_continue, log_error, log_warn, return_result_or_log_error_continue};
@@ -34,7 +34,9 @@ impl DnsUdpServer {
 
 impl DnsServer for DnsUdpServer {
   fn run(self) -> Result<(), Error> {
-    let socket = UdpSocket::bind(("0.0.0.0", self.settings.listening_port))?;
+    let bind_addr = (local_ip!(), self.settings.listening_port);
+    log_debug!("UDP server listening at {:?}:{}", bind_addr.0, bind_addr.1);
+    let socket = UdpSocket::bind(bind_addr)?;
 
     for thread_num in 0..self.settings.thread_count {
       let request_queue = self.request_queue.clone();
@@ -133,7 +135,7 @@ impl DnsTcpServer {
 
 impl DnsServer for DnsTcpServer {
   fn run(mut self) -> Result<(), Error> {
-    let socket = TcpListener::bind(("0.0.0.0", self.settings.listening_port))?;
+    let socket = TcpListener::bind((local_ip!(), self.settings.listening_port))?;
 
     for thread_id in 0..self.settings.thread_count {
       let (sender, receiver) = channel();
@@ -163,7 +165,7 @@ impl DnsServer for DnsTcpServer {
               ignore_result_or_log_error_continue!(stream.shutdown(Shutdown::Both), "Failed shutting down tcp connection");
             }
             Err(error) => {
-              log_error!("Resolver error {}", error)
+              log_error!("Resolver error {:#?}", error)
             }
           }
         })?;
