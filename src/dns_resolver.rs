@@ -1,9 +1,8 @@
 use crate::dns_packet::{DnsPacket, DnsQueryType, DnsQuestion, DnsRecord, DnsResponseCode};
 use crate::simple_database::SimpleDatabase;
-use crate::{ignore_result_and_log_error, log_debug, log_error, log_info, local_ip};
+use crate::{ignore_result_and_log_error, log_debug, log_error, log_info};
 use std::error::Error;
 use std::net::UdpSocket;
-use std::time::Duration;
 
 pub struct DnsResolver {
   database: SimpleDatabase,
@@ -66,7 +65,7 @@ impl DnsResolver {
     log_debug!("Doing remote lookup {:?} {:?}", question, packet);
     let server = (self.database.get_random_remote_lookup_server().unwrap(), 53);
 
-    let socket = UdpSocket::bind(("0.0.0.0:0"))?;
+    let socket = UdpSocket::bind("0.0.0.0:0")?;
 
     let mut remote_packet = DnsPacket::new();
     remote_packet.header.recurse_desired = true;
@@ -140,15 +139,8 @@ impl DnsResolver {
 
   fn any_record_type(records: &Vec<DnsRecord>, record_type: DnsQueryType) -> bool {
     for r in records {
-      match r {
-        DnsRecord::Unknown(x) if x.preamble.query_type == record_type => return true,
-        DnsRecord::A(x) if x.preamble.query_type == record_type => return true,
-        DnsRecord::NS(x) if x.preamble.query_type == record_type => return true,
-        DnsRecord::CNAME(x) if x.preamble.query_type == record_type => return true,
-        DnsRecord::MX(x) if x.preamble.query_type == record_type => return true,
-        DnsRecord::AAAA(x) if x.preamble.query_type == record_type => return true,
-        DnsRecord::DROP(x) if x.preamble.query_type == record_type => return true,
-        _ => {}
+      if r.get_preamble().query_type == record_type {
+        return true
       }
     }
     false

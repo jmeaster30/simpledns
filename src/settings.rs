@@ -2,9 +2,6 @@ use std::error::Error;
 use std::fs;
 use std::io::ErrorKind;
 use yaml_rust::YamlLoader;
-use std::path::Path;
-
-use crate::log_info;
 
 use crate::log_debug;
 
