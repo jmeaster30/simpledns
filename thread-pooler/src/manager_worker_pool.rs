@@ -26,10 +26,10 @@ pub struct Worker<T, U> where T: Clone + Send + Sync, U: Clone + Send + Sync {
 }
 
 impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static> Worker<T, U> { 
-  pub fn new<WorkerFn: Fn(Receiver<T>, Arc<RwLock<Worker<T, U>>>) -> ControlFlow<Result<U>, ()> + Sync + Send + 'static>(worker_fn: WorkerFn) -> Result<Arc<RwLock<Self>>> {
+  pub fn new<WorkerFn: Fn(Receiver<T>) -> ControlFlow<Result<U>, ()> + Sync + Send + 'static>(worker_fn: WorkerFn) -> Result<Arc<RefCell<Self>>> {
     let (sender, receiver) = channel();
 
-    let worker = Arc::new(RwLock::new(Self {
+    let worker = Arc::new(RefCell::new(Self {
       sender,
       handle: None,
       state: WorkerState::Idle,
@@ -39,18 +39,15 @@ impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static> Worker<
       .spawn(move || {
         let move_receiver = receiver;
         loop {
-          match do_with_write_lock(worker.clone(), |w| Ok(w.set_state(WorkerState::Idle))) {
-            Ok(_) => {}
-            Err(_) => continue,
-          }
-          match worker_fn(move_receiver, worker.clone()) {
-            ControlFlow::Break(result) => match &result {
+          worker.borrow_mut().get_mut().set_state(WorkerState::Idle);
+          match worker_fn(move_receiver) {
+            ControlFlow::Break(result) => match result {
               Ok(value) => {
-                let _ = do_with_write_lock(worker.clone(), |w| Ok(w.set_state(WorkerState::Finished(value.clone()))));
+                worker.borrow_mut().get_mut().set_state(WorkerState::Finished(value.clone()));
                 break;
               }
               Err(error) => {
-                let _ = do_with_write_lock(worker.clone(), |w| Ok(w.set_state(WorkerState::Dead(Arc::new(error.clone())))));
+                worker.borrow_mut().get_mut().set_state(WorkerState::Dead(Arc::new(error)));
                 break;
               }
             }
@@ -59,7 +56,7 @@ impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static> Worker<
         }
       })?;
 
-    do_with_write_lock(worker.clone(), move |w| Ok(w.set_handle(handle)))?;
+    worker.borrow_mut().get_mut().set_handle(handle);
     
     Ok(worker.clone())
   }
@@ -111,31 +108,17 @@ impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static> Worker<
   }
 }
 
-// TODO I don't like this function. I want a type that I can wrap the functions in but I don't have it. Maybe macro????
-pub fn do_with_write_lock<R, T: Clone + Send + Sync + 'static, 
-                          U: Clone + Send + Sync + 'static,
-                          F: FnMut(&mut Worker<T, U>) -> Result<R>>(mut worker: Arc<RwLock<Worker<T, U>>>, mut func: F) -> Result<R> 
-{
-  match worker.borrow_mut().write() {
-    Ok(mut locked_worker) => func(&mut locked_worker),
-    Err(_) => {
-      worker.borrow_mut().clear_poison();
-      Err(Error::new(ErrorKind::Other, "RwLock was poisoned. The poisoning was cleared"))
-    }
-  }
-}
-
-pub struct ManagerWorkerPool<T: Clone + Send + Sync, U: Clone + Send + Sync, WorkerBuilder: Fn() -> Result<Arc<RwLock<Worker<T, U>>>>> {
+pub struct ManagerWorkerPool<T: Clone + Send + Sync, U: Clone + Send + Sync, WorkerBuilder: Fn() -> Result<Arc<RefCell<Worker<T, U>>>>> {
   // configuration
   worker_count: usize,
   kill_timeout_ms: usize,
   worker_builder: Option<WorkerBuilder>,
 
   // management
-  worker_threads: Vec<Arc<RwLock<Worker<T, U>>>>,
+  worker_threads: Vec<Arc<RefCell<Worker<T, U>>>>,
 }
 
-impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static, WorkerBuilder: Fn() -> Result<Arc<RwLock<Worker<T, U>>>>> ManagerWorkerPool<T, U, WorkerBuilder> { 
+impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static, WorkerBuilder: Fn() -> Result<Arc<RefCell<Worker<T, U>>>>> ManagerWorkerPool<T, U, WorkerBuilder> { 
   pub fn new(worker_count: usize) -> Self {
     Self {
       worker_count,
@@ -177,10 +160,10 @@ impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static, WorkerB
     Ok(())
   }
 
-  fn select_random_worker(&self) -> Result<Arc<RwLock<Worker<T, U>>>> {
-    for worker in &self.worker_threads {
-      match do_with_write_lock(worker.clone(), |w| Ok(w.get_state())) {
-        Ok(WorkerState::Idle) => return Ok(worker.clone()),
+  fn select_random_worker(&mut self) -> Result<Arc<RefCell<Worker<T, U>>>> {
+    for worker in &mut self.worker_threads {
+      match worker.borrow().get_mut().get_state() {
+        WorkerState::Idle => return Ok(worker.clone()),
         _ => {}
       }
     }
@@ -195,7 +178,7 @@ impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static, WorkerB
         ControlFlow::Break(_) => break,
         ControlFlow::Continue(data) => {
           match self.select_random_worker() {
-            Ok(worker) => match do_with_write_lock(worker, |w| w.send(data.clone())) {
+            Ok(mut worker) => match worker.borrow().get_mut().send(data.clone()) {
               Ok(_) => continue,
               Err(_) => continue, // TODO need to not just ignore these errors maybe have configurable handlers for these???
             },
@@ -204,8 +187,8 @@ impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static, WorkerB
         }
       }
     }
-    for worker in &self.worker_threads {
-      let _ = do_with_write_lock(worker.clone(), |w| Ok(w.wait_join()));
+    for worker in &mut self.worker_threads {
+      worker.borrow().get_mut().wait_join();
     }
     Ok(())
   }
