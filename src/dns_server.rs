@@ -2,14 +2,16 @@ extern crate rand;
 
 use std::io::{Error, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::ops::ControlFlow;
 use std::sync::{Arc, Condvar, Mutex};
 use std::sync::mpsc::{channel, Sender};
 use std::thread::Builder;
 
 use rand::random;
+use thread_pooler::manager_worker_pool::{ManagerWorkerPool, Worker};
 
 use crate::utils::{get_u16, u16_to_bytes};
-use crate::{dns_packet::*, log_debug};
+use crate::{dns_packet::*, ignore_result_or_log_error_continue_flow, log_debug, return_result_or_log_error_continue_flow};
 use crate::dns_resolver::DnsResolver;
 use crate::settings::DnsSettings;
 use crate::{ignore_result_and_log_error, ignore_result_or_log_error_continue, log_error, log_warn, return_result_or_log_error_continue};
@@ -40,64 +42,21 @@ impl DnsServer for DnsUdpServer {
     log_debug!("UDP server listening at {:?}:{}", bind_addr.0, bind_addr.1);
     let socket = UdpSocket::bind(bind_addr)?;
 
-    for thread_num in 0..self.settings.thread_count {
-      let request_queue = self.request_queue.clone();
-      let request_cond = self.request_cond.clone();
+    let mut pool = ManagerWorkerPool::new(self.settings.thread_count);
+    pool.set_worker_builder(|| {
       let settings = self.settings.clone();
-      let socket_clone = match socket.try_clone() {
-        Ok(x) => x,
-        Err(error) => {
-          log_error!("Failed to clone socket: {}", error);
-          continue;
-        }
-      };
+      let socket_clone = socket.try_clone()?;
 
-      let _ = Builder::new()
-        .name(format!("DnsUdpServer-process-requests-{}", thread_num))
-        .spawn(move || {
-          loop {
-            // get thing from queue
-            let (source, request_packet) = match request_queue
-              .lock()
-              .ok()
-              .and_then(|x| request_cond.wait(x).ok())
-              .and_then(|mut x| x.pop()) {
-              Some(x) => x,
-              None => {
-                log_warn!("Request queue was empty when we were notified that something was in there :(");
-                continue;
-              }
-            };
-
-            // process request
-            let resolver = DnsResolver::new(settings.database_file.clone());
-  
-            match resolver.answer_question(request_packet) {
-              Ok(result) => {
-                ignore_result_and_log_error!(socket_clone.send_to(result.to_bytes().as_slice(), source));
-              }
-              Err(error) => {
-                log_error!("Resolver error {}", error)
-              }
-            }
-          }
-        })?;
-    }
-
-    let _ = Builder::new()
-      .name("DnsUdpServer-incoming-requests".to_string())
-      .spawn(move || {
+      Worker::<(SocketAddr, [u8; 512]), ()>::new(move |receiver| {
         loop {
-          let mut res: [u8; 512] = [0; 512];
-          let (_, src) = match socket.recv_from(&mut res) {
-            Ok(x) => x,
+          let (source, request_buffer) = match receiver.recv() {
+            Ok(data) => data,
             Err(error) => {
-              log_error!("There was a problem with reading from the UDP socket :( {}", error);
+              log_error!("Failed to receive the tcp stream: {}", error);
               continue;
             }
           };
-
-          let request = match DnsPacket::from_bytes(&res) {
+          let request_packet = match DnsPacket::from_bytes(&request_buffer) {
             Ok(packet) => packet,
             Err(error) => {
               log_error!("There was a problem with parsing the packet :( {}", error);
@@ -105,17 +64,46 @@ impl DnsServer for DnsUdpServer {
             }
           };
 
-          match self.request_queue.lock() {
-            Ok(mut queue) => {
-              queue.push((src, request));
-              self.request_cond.notify_one();
+          // process request
+          let resolver = DnsResolver::new(settings.database_file.clone());
+
+          match resolver.answer_question(request_packet) {
+            Ok(result) => {
+              ignore_result_and_log_error!(socket_clone.send_to(result.to_bytes().as_slice(), source));
             }
             Err(error) => {
-              log_error!("Failed to add packet to request queue: {}", error);
+              log_error!("Resolver error {}", error)
             }
           }
         }
-      })?;
+      })
+    });
+
+    pool.start_manager(|worker| {
+      let socket_clone = match socket.try_clone() {
+        Ok(socket) => socket,
+        Err(error) => {
+          log_error!("Could not clone socket: {}", error);
+          return ControlFlow::Break(());
+        }
+      };
+      let mut res: [u8; 512] = [0; 512];
+      let (_, src) = match socket.recv_from(&mut res) {
+        Ok(x) => x,
+        Err(error) => {
+          log_error!("There was a problem with reading from the UDP socket :( {}", error);
+          return ControlFlow::Continue(())
+        }
+      };
+
+      match worker.borrow_mut().send((src, res)) {
+        Ok(()) => ControlFlow::Continue(()),
+        Err(error) => {
+          log_error!("Failed sending to worker");
+          ControlFlow::Continue(())
+        }
+      }
+    })?;
 
     Ok(())
   }
@@ -141,71 +129,52 @@ impl DnsServer for DnsTcpServer {
     log_debug!("TCP server listening at {:?}:{}", bind_addr.0, bind_addr.1);
     let socket = TcpListener::bind(bind_addr)?;
 
-    for thread_id in 0..self.settings.thread_count {
-      let (sender, receiver) = channel();
-
-      self.request_handlers.push(sender);
-
+    let mut pool = ManagerWorkerPool::new(self.settings.thread_count);
+    pool.set_worker_builder(|| {
       let settings = self.settings.clone();
+      
+      Worker::<(TcpStream, SocketAddr), ()>::new(move |receiver| {
+        let (mut stream, socket_addr) = return_result_or_log_error_continue_flow!(receiver.recv(), "Failed to receive the tcp stream");
+        log_debug!("TCP stream received on {}!!!!!", socket_addr);
 
-      let _ = Builder::new()
-        .name(format!("DnsTcpServer-request-handler-{}", thread_id))
-        .spawn(move || {
-          let stream_receiver = receiver;
-          loop {
-            let mut stream = return_result_or_log_error_continue!(stream_receiver.recv(), "Failed to receive the tcp stream");
-            log_debug!("TCP stream received!!!!!");
+        let mut packet_length_buffer = [0; 2];
+        ignore_result_or_log_error_continue_flow!(stream.read(&mut packet_length_buffer), "Failed to read the packet length from the stream");
+        let packet_length: usize = return_result_or_log_error_continue_flow!(get_u16(&packet_length_buffer, 0), "Failed packet length conversion");
 
-            let mut packet_length_buffer = [0; 2];
-            ignore_result_or_log_error_continue!(stream.read(&mut packet_length_buffer), "Failed to read the packet length from the stream");
-            let packet_length: usize = match get_u16(&packet_length_buffer, 0) {
-              Ok(x) => x as usize,
-              Err(err) => {
-                log_error!("Failed packet length conversion: {}", err);
-                0 // TODO this feels hacky but the return_result_or_log_error_continue macro wasn't working for some reason also this is very likely to not happen
-              }
-            };
+        log_debug!("Read packet length: {:?}", packet_length);
+        let mut packet_buffer = vec![0; packet_length];
+        log_debug!("Made packet buffer of size {}", packet_buffer.len());
+        ignore_result_or_log_error_continue_flow!(stream.read(&mut packet_buffer), "Failed to read the packet into a buffer");
 
-            log_debug!("Read packet length: {:?}", packet_length);
-            let mut packet_buffer = vec![0; packet_length];
-            log_debug!("Made packet buffer of size {}", packet_buffer.len());
-            ignore_result_or_log_error_continue!(stream.read(&mut packet_buffer), "Failed to read the packet into a buffer");
+        log_debug!("Done reading to end of the stream");
+        let request = return_result_or_log_error_continue_flow!(DnsPacket::from_bytes(&packet_buffer), "Failed to parse packet from buffer");
+        let resolver = DnsResolver::new(settings.database_file.clone());
 
-            log_debug!("Done reading to end of the stream");
-            let request = return_result_or_log_error_continue!(DnsPacket::from_bytes(&packet_buffer), "Failed to parse packet from buffer");
-            let resolver = DnsResolver::new(settings.database_file.clone());
-
-            match resolver.answer_question(request) {
-              Ok(result) => {
-                log_debug!("Sending response packet: {:#?}", result);
-                let response_bytes = result.to_bytes();
-                let response_length = response_bytes.len() as u16; // TODO this is a sketchy cast 
-                ignore_result_or_log_error_continue!(stream.write(u16_to_bytes(response_length).as_slice()), "Failed writing result back to buffer");
-                ignore_result_or_log_error_continue!(stream.write(response_bytes.as_slice()), "Failed writing result back to buffer");
-                log_debug!("Flushing Stream Buffer...");
-                ignore_result_or_log_error_continue!(stream.flush(), "Failed flushing tcp buffer");
-                log_debug!("Shutting down stream...");
-                ignore_result_or_log_error_continue!(stream.shutdown(Shutdown::Both), "Failed shutting down tcp connection");
-              }
-              Err(error) => {
-                log_error!("Resolver error {:#?}", error)
-              }
-            }
+        match resolver.answer_question(request) {
+          Ok(result) => {
+            log_debug!("Sending response packet: {:#?}", result);
+            let response_bytes = result.to_bytes();
+            let response_length = response_bytes.len() as u16; // TODO this is a sketchy cast 
+            ignore_result_or_log_error_continue_flow!(stream.write(u16_to_bytes(response_length).as_slice()), "Failed writing result back to buffer");
+            ignore_result_or_log_error_continue_flow!(stream.write(response_bytes.as_slice()), "Failed writing result back to buffer");
+            log_debug!("Flushing Stream Buffer...");
+            ignore_result_or_log_error_continue_flow!(stream.flush(), "Failed flushing tcp buffer");
+            log_debug!("Shutting down stream...");
+            ignore_result_or_log_error_continue_flow!(stream.shutdown(Shutdown::Both), "Failed shutting down tcp connection");
           }
-        })?;
-    }
-
-    let _ = Builder::new().name("DnsTcpServer-incoming-requests".to_string())
-      .spawn(move || for incoming in socket.incoming() {
-        match incoming {
-          Ok(stream) => {
-            let idx = random::<usize>() % self.settings.thread_count as usize;
-            log_debug!("Picked handler {}/{}", idx, self.settings.thread_count);
-            ignore_result_and_log_error!(self.request_handlers[idx].send(stream))
+          Err(error) => {
+            log_error!("Resolver error {:#?}", error)
           }
-          Err(error) => log_error!("Failed to accept incoming TCP connection: {}", error),
         }
-      })?;
+        ControlFlow::Continue(())
+      })
+    });
+
+    pool.start_manager(|worker| {
+      let incoming_stream = return_result_or_log_error_continue_flow!(socket.accept(), "Failed accepting incoming tcp connection");
+      ignore_result_or_log_error_continue_flow!(worker.borrow_mut().send(incoming_stream), "Failed sending tcp stream to worker");
+      ControlFlow::Continue(())
+    })?;
 
     Ok(())
   }

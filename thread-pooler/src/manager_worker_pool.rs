@@ -1,92 +1,141 @@
-use std::any::Any;
+use std::borrow::{Borrow, BorrowMut};
+use std::cell::RefCell;
 use std::clone::Clone;
 use std::io::{Error, ErrorKind, Result};
 use std::ops::ControlFlow;
-use std::sync::Arc;
-//use std::os::unix::thread::JoinHandleExt;
-use std::thread::{Builder, JoinHandle};
+use std::sync::{Arc, RwLock};
+use std::thread::{current, Builder, JoinHandle};
 use std::marker::{Send, Sync};
-//{Arc, Condvar, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 use rand::random;
 use uuid::Uuid;
 
-pub enum WorkerState<U> {
+#[derive(Clone)]
+pub enum WorkerState<U> where U: Clone + Send + Sync {
   Idle,
   Busy,
   Finished(U),
-  Dead(Box<dyn Any + Send>),
+  Dead(Arc<Error>), // TODO wack
 }
 
-struct Worker<T, U> where T: Send + Sync, U: Send {
+pub struct Worker<T, U> where T: Clone + Send + Sync, U: Clone + Send + Sync {
   sender: Sender<T>,
-  handle: JoinHandle<Result<U>>,
+  handle: Option<JoinHandle<()>>,
   state: WorkerState<U>,
 }
 
-impl<T: Send + Sync + 'static, U: Send + 'static> Worker<T, U> { 
-  pub fn new<WorkerFn: Fn(Receiver<T>) -> Result<U> + Send + 'static>(worker_fn: WorkerFn) -> Result<Self> {
+impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static> Worker<T, U> { 
+  pub fn new<WorkerFn: Fn(Receiver<T>, Arc<RwLock<Worker<T, U>>>) -> ControlFlow<Result<U>, ()> + Sync + Send + 'static>(worker_fn: WorkerFn) -> Result<Arc<RwLock<Self>>> {
     let (sender, receiver) = channel();
-    let handle = Builder::new().name(Uuid::new_v4().to_string())
-      .spawn(move || worker_fn(receiver))?;
-    
-    Ok(Self {
+
+    let worker = Arc::new(RwLock::new(Self {
       sender,
-      handle,
-      state: WorkerState::Idle
-    })
+      handle: None,
+      state: WorkerState::Idle,
+    }));
+
+    let handle = Builder::new().name(Uuid::new_v4().to_string())
+      .spawn(move || {
+        let move_receiver = receiver;
+        loop {
+          match do_with_write_lock(worker.clone(), |w| Ok(w.set_state(WorkerState::Idle))) {
+            Ok(_) => {}
+            Err(_) => continue,
+          }
+          match worker_fn(move_receiver, worker.clone()) {
+            ControlFlow::Break(result) => match &result {
+              Ok(value) => {
+                let _ = do_with_write_lock(worker.clone(), |w| Ok(w.set_state(WorkerState::Finished(value.clone()))));
+                break;
+              }
+              Err(error) => {
+                let _ = do_with_write_lock(worker.clone(), |w| Ok(w.set_state(WorkerState::Dead(Arc::new(error.clone())))));
+                break;
+              }
+            }
+            ControlFlow::Continue(_) => {}
+          }
+        }
+      })?;
+
+    do_with_write_lock(worker.clone(), move |w| Ok(w.set_handle(handle)))?;
+    
+    Ok(worker.clone())
   }
 
   pub fn send(&mut self, data: T) -> Result<()> {
     match self.sender.send(data) {
       Ok(_) => {}
-      Err(error) => return Err(Error::new(ErrorKind::Other, error))
+      Err(error) => return Err(Error::new(ErrorKind::Other, error)) 
     }
-    self.state = WorkerState::Busy;
+    self.set_state(WorkerState::Busy);
     Ok(())
+  }
+
+  pub fn set_state(&mut self, state: WorkerState<U>) {
+    self.state = state;
+  }
+
+  pub fn set_handle(&mut self, handle: JoinHandle<()>) {
+    self.handle = Some(handle)
   }
 
   pub fn kill(&mut self) {
     todo!()
   }
 
-  pub fn get_state(&self) -> WorkerState<U> {
+  pub fn get_state(&mut self) -> WorkerState<U> {
     // this stinks lmao
-    if self.handle.is_finished() {
-      self.wait()
-    } else {
-      // todo wack
-      match self.state {
-        WorkerState::Idle => WorkerState::Idle,
-        WorkerState::Busy => WorkerState::Busy,
-        _ => todo!()
-      }
+    match &self.handle {
+      Some(handle) if handle.is_finished() => self.wait_join(),
+      _ => self.state.clone()
     }
   }
 
-  pub fn wait(&self) -> WorkerState<U> {
-    match self.handle.join() {
-      Ok(result) => match result {
-        Ok(value) => WorkerState::Finished(value),
-        Err(error) => WorkerState::Dead(Box::new(error))
+  pub fn wait_join(&mut self) -> WorkerState<U> {
+    match self.handle {
+      Some(_) => {
+        let handle = self.handle.take().unwrap();
+        self.handle = None;
+        match handle.join() {
+          Ok(_) => {}
+          Err(_) => {
+            self.state = WorkerState::Dead(Arc::new(Error::new(ErrorKind::Other, "Join errored"))); // TODO dont just drop this
+          }
+        }
       }
-      Err(error) => WorkerState::Dead(error)
+      _ => {}
+    };
+    self.state.clone()
+  }
+}
+
+// TODO I don't like this function. I want a type that I can wrap the functions in but I don't have it. Maybe macro????
+pub fn do_with_write_lock<R, T: Clone + Send + Sync + 'static, 
+                          U: Clone + Send + Sync + 'static,
+                          F: FnMut(&mut Worker<T, U>) -> Result<R>>(mut worker: Arc<RwLock<Worker<T, U>>>, mut func: F) -> Result<R> 
+{
+  match worker.borrow_mut().write() {
+    Ok(mut locked_worker) => func(&mut locked_worker),
+    Err(_) => {
+      worker.borrow_mut().clear_poison();
+      Err(Error::new(ErrorKind::Other, "RwLock was poisoned. The poisoning was cleared"))
     }
   }
 }
 
-pub struct ManagerWorkerPool<T: Send + Sync, U: Send, WorkerBuilder: Fn() -> Worker<T, U>> {
+pub struct ManagerWorkerPool<T: Clone + Send + Sync, U: Clone + Send + Sync, WorkerBuilder: Fn() -> Result<Arc<RwLock<Worker<T, U>>>>> {
   // configuration
   worker_count: usize,
   kill_timeout_ms: usize,
   worker_builder: Option<WorkerBuilder>,
 
   // management
-  worker_threads: Vec<Arc<Worker<T, U>>>,
+  worker_threads: Vec<Arc<RwLock<Worker<T, U>>>>,
 }
 
-impl<T: Send + Sync + 'static, U: Clone + Send + 'static, WorkerBuilder: Fn() -> Worker<T, U>> ManagerWorkerPool<T, U, WorkerBuilder> { 
+impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static, WorkerBuilder: Fn() -> Result<Arc<RwLock<Worker<T, U>>>>> ManagerWorkerPool<T, U, WorkerBuilder> { 
   pub fn new(worker_count: usize) -> Self {
     Self {
       worker_count,
@@ -111,7 +160,7 @@ impl<T: Send + Sync + 'static, U: Clone + Send + 'static, WorkerBuilder: Fn() ->
     }
 
     let unwrapped_builder = self.worker_builder.as_ref().unwrap();
-    self.worker_threads.push(Arc::new(unwrapped_builder()));
+    self.worker_threads.push(unwrapped_builder()?);
     Ok(())
   }
 
@@ -128,22 +177,35 @@ impl<T: Send + Sync + 'static, U: Clone + Send + 'static, WorkerBuilder: Fn() ->
     Ok(())
   }
 
-  fn select_random_worker(&self) -> &Worker<T, U> {
-    let idx = random::<usize>() % self.worker_count as usize;
-    self.worker_threads.get(idx).unwrap()
+  fn select_random_worker(&self) -> Result<Arc<RwLock<Worker<T, U>>>> {
+    for worker in &self.worker_threads {
+      match do_with_write_lock(worker.clone(), |w| Ok(w.get_state())) {
+        Ok(WorkerState::Idle) => return Ok(worker.clone()),
+        _ => {}
+      }
+    }
+    Err(Error::new(ErrorKind::ConnectionRefused, "All workers in thread pool are busy :("))
   }
 
-  pub fn start_manager<F: Fn(&Worker<T, U>) -> ControlFlow<(), ()>>(&mut self, manager_fn: F) -> Result<()> {
+  // TODO this should be in a separate thread so we can run multiple thread pools at the same time
+  pub fn start_manager<F: Fn() -> ControlFlow<(), T>>(&mut self, manager_fn: F) -> Result<()> {
     loop {
-      self.build_missing_workers();
-      let worker = self.select_random_worker();
-      match manager_fn(worker) {
+      self.build_missing_workers()?;
+      match manager_fn() {
         ControlFlow::Break(_) => break,
-        ControlFlow::Continue(_) => continue
+        ControlFlow::Continue(data) => {
+          match self.select_random_worker() {
+            Ok(worker) => match do_with_write_lock(worker, |w| w.send(data.clone())) {
+              Ok(_) => continue,
+              Err(_) => continue, // TODO need to not just ignore these errors maybe have configurable handlers for these???
+            },
+            Err(_) => continue, // TODO need to not just ignore these errors maybe have configurable handlers for these???
+          }
+        }
       }
     }
     for worker in &self.worker_threads {
-      worker.wait();
+      let _ = do_with_write_lock(worker.clone(), |w| Ok(w.wait_join()));
     }
     Ok(())
   }
