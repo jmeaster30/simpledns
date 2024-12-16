@@ -16,6 +16,7 @@ rusqlite = { version = "0.30.0", features = ["bundled"] }
 shellexpand = "3.1.0"
 simple-macros = { path = "simple-macros" }
 tabled = "0.17.0"
+thread-pooler = { path = "thread-pooler" }
 yaml-rust = "0.4"
 
 [features]
