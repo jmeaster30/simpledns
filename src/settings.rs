@@ -11,7 +11,7 @@ extern crate shellexpand;
 pub struct DnsSettings {
   pub listening_port: u16,
   pub database_file: String,
-  pub thread_count: u32,
+  pub thread_count: usize,
   pub use_udp: bool,
   pub use_tcp: bool,
 }
@@ -34,7 +34,7 @@ impl DnsSettings {
           None => 53,
         };
         let thread_count = match config_settings["thread-count"].as_i64() {
-          Some(x) => x as u32,
+          Some(x) => x as usize,
           None => 1, // TODO is this the best default?
         };
         let use_udp = match config_settings["use-udp"].as_bool() {
