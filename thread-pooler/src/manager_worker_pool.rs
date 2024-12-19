@@ -1,14 +1,12 @@
-use std::borrow::{Borrow, BorrowMut};
-use std::cell::RefCell;
 use std::clone::Clone;
 use std::io::{Error, ErrorKind, Result};
 use std::ops::ControlFlow;
+use std::rc::Rc;
 use std::sync::{Arc, RwLock};
-use std::thread::{current, Builder, JoinHandle};
+use std::thread::{Builder, JoinHandle};
 use std::marker::{Send, Sync};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
-use rand::random;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -19,35 +17,62 @@ pub enum WorkerState<U> where U: Clone + Send + Sync {
   Dead(Arc<Error>), // TODO wack
 }
 
-pub struct Worker<T, U> where T: Clone + Send + Sync, U: Clone + Send + Sync {
+pub struct Worker<T, U> where T:  Send + Sync, U: Clone + Send + Sync {
   sender: Sender<T>,
   handle: Option<JoinHandle<()>>,
   state: WorkerState<U>,
 }
 
-impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static> Worker<T, U> { 
-  pub fn new<WorkerFn: Fn(Receiver<T>) -> ControlFlow<Result<U>, ()> + Sync + Send + 'static>(worker_fn: WorkerFn) -> Result<Arc<RefCell<Self>>> {
+impl<T: Send + Sync + 'static, U: Clone + Send + Sync + 'static> Worker<T, U> { 
+  pub fn new<WorkerFn: FnMut(&Receiver<T>) -> ControlFlow<Result<U>, ()> + Sync + Send + 'static>(mut worker_fn: WorkerFn) -> Result<Arc<RwLock<Self>>> {
     let (sender, receiver) = channel();
 
-    let worker = Arc::new(RefCell::new(Self {
+    let worker = Arc::new(RwLock::new(Self {
       sender,
       handle: None,
       state: WorkerState::Idle,
     }));
 
+    let worker_clone = worker.clone();
+
     let handle = Builder::new().name(Uuid::new_v4().to_string())
       .spawn(move || {
-        let move_receiver = receiver;
+        let rc_receiver = Rc::new(receiver);
         loop {
-          worker.borrow_mut().get_mut().set_state(WorkerState::Idle);
-          match worker_fn(move_receiver) {
+          match worker.write() {
+            Ok(mut unlocked_worker) => unlocked_worker.set_state(WorkerState::Idle),
+            Err(_) => {
+              if worker.is_poisoned() {
+                worker.clear_poison();
+              }
+              // TODO log error maybe
+              continue;
+            }
+          }
+          match worker_fn(&rc_receiver) {
             ControlFlow::Break(result) => match result {
               Ok(value) => {
-                worker.borrow_mut().get_mut().set_state(WorkerState::Finished(value.clone()));
+                match worker.write() {
+                  Ok(mut unlocked_worker) => unlocked_worker.set_state(WorkerState::Finished(value.clone())),
+                  Err(_) => {
+                    if worker.is_poisoned() {
+                      worker.clear_poison();
+                    }
+                    // TODO log error maybe
+                  }
+                };
                 break;
               }
               Err(error) => {
-                worker.borrow_mut().get_mut().set_state(WorkerState::Dead(Arc::new(error)));
+                match worker.write() {
+                  Ok(mut unlocked_worker) => unlocked_worker.set_state(WorkerState::Dead(Arc::new(error))),
+                  Err(_) => {
+                    if worker.is_poisoned() {
+                      worker.clear_poison();
+                    }
+                    // TODO log error maybe
+                  }
+                };
                 break;
               }
             }
@@ -56,9 +81,17 @@ impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static> Worker<
         }
       })?;
 
-    worker.borrow_mut().get_mut().set_handle(handle);
+    match worker_clone.write() {
+      Ok(mut write_guard_worker) => write_guard_worker.set_handle(handle),
+      Err(_) => {
+        if worker_clone.is_poisoned() {
+          worker_clone.clear_poison();
+        }
+        return Err(Error::new(ErrorKind::Other, "Worker poisoned"))
+      }
+    };
     
-    Ok(worker.clone())
+    Ok(worker_clone.clone())
   }
 
   pub fn send(&mut self, data: T) -> Result<()> {
@@ -108,17 +141,17 @@ impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static> Worker<
   }
 }
 
-pub struct ManagerWorkerPool<T: Clone + Send + Sync, U: Clone + Send + Sync, WorkerBuilder: Fn() -> Result<Arc<RefCell<Worker<T, U>>>>> {
+pub struct ManagerWorkerPool<T: Send + Sync, U: Clone + Send + Sync, WorkerBuilder: Fn() -> Result<Arc<RwLock<Worker<T, U>>>>> {
   // configuration
   worker_count: usize,
   kill_timeout_ms: usize,
   worker_builder: Option<WorkerBuilder>,
 
   // management
-  worker_threads: Vec<Arc<RefCell<Worker<T, U>>>>,
+  worker_threads: Vec<Arc<RwLock<Worker<T, U>>>>,
 }
 
-impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static, WorkerBuilder: Fn() -> Result<Arc<RefCell<Worker<T, U>>>>> ManagerWorkerPool<T, U, WorkerBuilder> { 
+impl<T: Send + Sync + 'static, U: Clone + Send + Sync + 'static, WorkerBuilder: Fn() -> Result<Arc<RwLock<Worker<T, U>>>>> ManagerWorkerPool<T, U, WorkerBuilder> { 
   pub fn new(worker_count: usize) -> Self {
     Self {
       worker_count,
@@ -160,35 +193,62 @@ impl<T: Clone + Send + Sync + 'static, U: Clone + Send + Sync + 'static, WorkerB
     Ok(())
   }
 
-  fn select_random_worker(&mut self) -> Result<Arc<RefCell<Worker<T, U>>>> {
-    for worker in &mut self.worker_threads {
-      match worker.borrow().get_mut().get_state() {
-        WorkerState::Idle => return Ok(worker.clone()),
-        _ => {}
-      }
-    }
-    Err(Error::new(ErrorKind::ConnectionRefused, "All workers in thread pool are busy :("))
-  }
-
-  // TODO this should be in a separate thread so we can run multiple thread pools at the same time
-  pub fn start_manager<F: Fn() -> ControlFlow<(), T>>(&mut self, manager_fn: F) -> Result<()> {
-    loop {
-      self.build_missing_workers()?;
-      match manager_fn() {
-        ControlFlow::Break(_) => break,
-        ControlFlow::Continue(data) => {
-          match self.select_random_worker() {
-            Ok(mut worker) => match worker.borrow().get_mut().send(data.clone()) {
-              Ok(_) => continue,
-              Err(_) => continue, // TODO need to not just ignore these errors maybe have configurable handlers for these???
-            },
-            Err(_) => continue, // TODO need to not just ignore these errors maybe have configurable handlers for these???
+  fn select_random_worker(&mut self) -> Result<Arc<RwLock<Worker<T, U>>>> {
+    for worker in &self.worker_threads {
+      match worker.write() {
+        Ok(mut unlocked_worker) => match unlocked_worker.get_state() {
+          WorkerState::Idle => { 
+            return Ok(worker.clone()); 
+          }
+          _ => {}
+        }
+        Err(_) => {
+          if worker.is_poisoned() {
+            worker.clear_poison();
           }
         }
       }
     }
-    for worker in &mut self.worker_threads {
-      worker.borrow().get_mut().wait_join();
+    Err(Error::new(ErrorKind::ConnectionRefused, "All workers in thread pool are busy :(")) // TODO idk maybe like keep checking until a timeout happens? Or add some queue type thing maybe
+  }
+
+  // TODO this should be in a separate thread so we can run multiple thread pools at the same time
+  pub fn start_manager<F: Fn() -> ControlFlow<(), Result<T>>>(&mut self, manager_fn: F) -> Result<()> {
+    loop {
+      self.build_missing_workers()?;
+      match manager_fn() {
+        ControlFlow::Break(_) => break,
+        ControlFlow::Continue(data) => match data {
+          Ok(data) => match self.select_random_worker() {
+            Ok(worker) => match worker.write() {
+              Ok(mut unlocked_worker) => match unlocked_worker.send(data) {
+                Ok(_) => continue,
+                Err(_) => continue, // TODO need to not just ignore these errors maybe have configurable handlers for these???
+              }
+              Err(_) => {
+                if worker.is_poisoned() {
+                  worker.clear_poison();
+                }
+                continue; // TODO see above
+              } 
+            }
+            Err(_) => continue, // TODO see above
+          }
+          Err(_) => continue, // TODO see above
+        }
+      }
+    }
+    for worker in &self.worker_threads {
+      match worker.write() {
+        Ok(mut unlocked_worker) => { 
+          unlocked_worker.wait_join(); 
+        }
+        Err(_) => {
+          if worker.is_poisoned() {
+            worker.clear_poison();
+          }
+        }
+      }
     }
     Ok(())
   }

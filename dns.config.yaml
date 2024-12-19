@@ -1,5 +1,5 @@
 listening-port: 12345
 thread-count: 1
-use-udp: false
-use-tcp: true
+use-udp: true
+use-tcp: false
 database-file: "~/.config/simpledns/simpledns.sqlite.db"

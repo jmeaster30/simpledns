@@ -1,7 +1,11 @@
 use std::io::{Error, ErrorKind};
 use std::net::Ipv4Addr;
 
-use chrono::{Local, DateTime, Duration};
+use chrono::{Local, DateTime};
+
+#[cfg(feature = "tui")]
+use chrono::Duration;
+
 use simple_macros::from;
 
 use crate::utils::{domain_name_to_bytes, get_name_from_packet, get_u16, get_u32, u16_to_bytes, u32_to_bytes};

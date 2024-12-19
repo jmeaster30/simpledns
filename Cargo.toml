@@ -20,7 +20,7 @@ thread-pooler = { path = "thread-pooler" }
 yaml-rust = "0.4"
 
 [features]
-default = ["log_info"]
+default = ["log_debug"]
 log_debug = ["log_info"]
 log_info = ["log_warn"]
 log_warn = ["log_error"]
