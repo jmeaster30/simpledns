@@ -69,3 +69,31 @@ macro_rules! ignore_result_or_log_error_continue {
         }
     };
 }
+
+#[macro_export]
+macro_rules! return_result_or_log_error_continue_flow {
+    ($x:expr, $message:expr) => {
+        match $x {
+            Ok(a) => a,
+            Err(error) => {
+                use std::ops::ControlFlow;
+                log_error!("{}: {}", $message, error);
+                return ControlFlow::Continue(());
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! ignore_result_or_log_error_continue_flow {
+    ($x:expr, $message:expr) => {
+        match $x {
+            Ok(_) => {},
+            Err(error) => {
+                use std::ops::ControlFlow;
+                log_error!("{}: {}", $message, error);
+                return ControlFlow::Continue(());
+            }
+        }
+    };
+}

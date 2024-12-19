@@ -1,4 +1,4 @@
-listening-port: 53
+listening-port: 12345
 thread-count: 1
 use-udp: true
 use-tcp: false

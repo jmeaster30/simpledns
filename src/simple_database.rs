@@ -1,6 +1,10 @@
 use crate::dns_packet::{
-  CachedDnsRecord, DnsQueryType, DnsRecord, DnsRecordA, DnsRecordAAAA, DnsRecordCNAME, DnsRecordDROP, DnsRecordMX, DnsRecordNS, DnsRecordPreamble, DnsRecordUnknown
+  DnsQueryType, DnsRecord, DnsRecordA, DnsRecordAAAA, DnsRecordCNAME, DnsRecordDROP, DnsRecordMX, DnsRecordNS, DnsRecordPreamble, DnsRecordUnknown
 };
+#[cfg(feature = "tui")]
+use crate::dns_packet::CachedDnsRecord;
+
+#[cfg(feature = "tui")]
 use chrono::{Local, TimeZone};
 use rusqlite::{params, Connection, Params, Result, Statement, Row};
 use std::net::Ipv4Addr;
@@ -62,6 +66,7 @@ impl SimpleDatabase {
     })
   }
 
+  #[cfg(feature = "tui")]
   fn row_to_cached_dns_record(&self, row: &Row<'_>) -> Result<CachedDnsRecord> {
     let record = self.row_to_dns_record(row)?;
     let insert_timestamp = row.get(7)?;
@@ -79,6 +84,7 @@ impl SimpleDatabase {
     Ok(results)
   }
 
+  #[cfg(feature = "tui")]
   fn run_cached_dns_record_query<P: Params>(&self, mut statement: Statement<'_>, params: P) -> Result<Vec<CachedDnsRecord>> {
     let query_results = statement.query_map(params, |row| self.row_to_cached_dns_record(row))?;
 
@@ -116,6 +122,7 @@ impl SimpleDatabase {
     Ok(records)
   }
 
+  #[cfg(feature = "tui")]
   pub fn get_all_cached_records(&self) -> Result<Vec<CachedDnsRecord>> {
     self.clean_up_cache()?;
     let stmt = self.connection.prepare("SELECT domain, query_type, class, ttl, len, hostipbody, priority, insert_time FROM cached_records;")?;
